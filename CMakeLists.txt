@@ -20,4 +20,18 @@ target_link_libraries(
     protobuf_demo
     PRIVATE
     protobuf::libprotobuf
+)   
+
+
+add_executable(
+    rpc_codec_demo
+    src/rpc_codec_demo.cpp
+    proto/calculator.pb.cc
+    proto/rpc_header.pb.cc
+)
+
+target_link_libraries(
+    rpc_codec_demo
+    PRIVATE
+    protobuf::libprotobuf
 )
