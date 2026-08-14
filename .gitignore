@@ -1,0 +1,17 @@
+# CMake build directory
+build/
+
+# Compiled executable
+protobuf_demo
+
+# Object files
+*.o
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+
+# VS Code local settings
+.vscode/
