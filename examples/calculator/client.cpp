@@ -1,7 +1,7 @@
 #include <iostream>
 #include <string>
 
-#include "proto/calculator.pb.h"
+#include "calculator.pb.h"
 #include <minirpc/rpc_channel.h>
 
 int main(int argc, char* argv[])

@@ -7,97 +7,86 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Protobuf REQUIRED)
 
-# 让代码可以通过
-# #include "proto/xxx.pb.h"
-# 找到项目根目录下的头文件
-include_directories("${CMAKE_SOURCE_DIR}")
 
-# =========================
+# ==================================================
 # MiniRPC Framework Library
-# =========================
+# ==================================================
+
 add_library(
     minirpc
     STATIC
+
     src/minirpc/rpc_server.cpp
     src/minirpc/rpc_dispatcher.cpp
     src/minirpc/rpc_channel.cpp
-    proto/rpc_header.pb.cc
-)
 
-target_link_libraries(
-    minirpc
-    PUBLIC
-    protobuf::libprotobuf
+    proto/rpc_header.pb.cc
 )
 
 target_include_directories(
     minirpc
+
     PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
 )
 
-# =========================
-# Protobuf demo
-# =========================
-add_executable(
-    protobuf_demo
-    src/protobuf_demo.cpp
-    proto/calculator.pb.cc
-)
-
 target_link_libraries(
-    protobuf_demo
-    PRIVATE
+    minirpc
+
+    PUBLIC
     protobuf::libprotobuf
 )
 
 
-# =========================
-# RPC codec demo
-# =========================
+# ==================================================
+# Calculator Example Server
+# ==================================================
+
 add_executable(
-    rpc_codec_demo
-    src/rpc_codec_demo.cpp
-    proto/calculator.pb.cc
-    proto/rpc_header.pb.cc
+    rpc_server
+
+    examples/calculator/server.cpp
+    examples/calculator/calculator_service.cpp
+    examples/calculator/calculator.pb.cc
 )
 
-target_link_libraries(
-    rpc_codec_demo
+target_include_directories(
+    rpc_server
+
     PRIVATE
-    protobuf::libprotobuf
-)
-
-
-# =========================
-# RPC Server
-# =========================
-add_executable(
-    rpc_server
-    src/rpc_server.cpp
-    src/calculator_service.cpp
-    proto/calculator.pb.cc
+    ${CMAKE_SOURCE_DIR}/examples/calculator
 )
 
 target_link_libraries(
     rpc_server
+
     PRIVATE
     minirpc
 )
 
 
-# =========================
-# RPC Client
-# =========================
+# ==================================================
+# Calculator Example Client
+# ==================================================
+
 add_executable(
     rpc_client
-    src/rpc_client.cpp
-    proto/calculator.pb.cc
+
+    examples/calculator/client.cpp
+    examples/calculator/calculator.pb.cc
+)
+
+target_include_directories(
+    rpc_client
+
+    PRIVATE
+    ${CMAKE_SOURCE_DIR}/examples/calculator
 )
 
 target_link_libraries(
     rpc_client
+
     PRIVATE
     minirpc
 )

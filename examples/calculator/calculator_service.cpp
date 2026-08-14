@@ -2,7 +2,7 @@
 
 #include <iostream>
 
-#include "proto/calculator.pb.h"
+#include "calculator.pb.h"
 
 void CalculatorService::Register(RpcServer& server)
 {
