@@ -12,6 +12,30 @@ find_package(Protobuf REQUIRED)
 # 找到项目根目录下的头文件
 include_directories("${CMAKE_SOURCE_DIR}")
 
+# =========================
+# MiniRPC Framework Library
+# =========================
+add_library(
+    minirpc
+    STATIC
+    src/rpc_server_core.cpp
+    src/rpc_dispatcher.cpp
+    src/rpc_channel.cpp
+    proto/rpc_header.pb.cc
+)
+
+target_link_libraries(
+    minirpc
+    PUBLIC
+    protobuf::libprotobuf
+)
+
+target_include_directories(
+    minirpc
+    PUBLIC
+    ${CMAKE_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src
+)
 
 # =========================
 # Protobuf demo
@@ -52,17 +76,14 @@ target_link_libraries(
 add_executable(
     rpc_server
     src/rpc_server.cpp
-    src/rpc_server_core.cpp
-    src/rpc_dispatcher.cpp
     src/calculator_service.cpp
     proto/calculator.pb.cc
-    proto/rpc_header.pb.cc
 )
 
 target_link_libraries(
     rpc_server
     PRIVATE
-    protobuf::libprotobuf
+    minirpc
 )
 
 
@@ -72,13 +93,11 @@ target_link_libraries(
 add_executable(
     rpc_client
     src/rpc_client.cpp
-    src/rpc_channel.cpp
     proto/calculator.pb.cc
-    proto/rpc_header.pb.cc
 )
 
 target_link_libraries(
     rpc_client
     PRIVATE
-    protobuf::libprotobuf
+    minirpc
 )
