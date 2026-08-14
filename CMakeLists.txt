@@ -9,7 +9,46 @@ find_package(Protobuf REQUIRED)
 
 
 # ==================================================
-# MiniRPC Framework Library
+# Generated Protobuf directories
+# ==================================================
+
+set(MINIRPC_PROTO_GEN_DIR
+    ${CMAKE_BINARY_DIR}/generated/minirpc
+)
+
+set(CALCULATOR_PROTO_GEN_DIR
+    ${CMAKE_BINARY_DIR}/generated/calculator
+)
+
+file(MAKE_DIRECTORY
+    ${MINIRPC_PROTO_GEN_DIR}
+)
+
+file(MAKE_DIRECTORY
+    ${CALCULATOR_PROTO_GEN_DIR}
+)
+
+
+# ==================================================
+# MiniRPC protocol
+# ==================================================
+
+protobuf_generate(
+    LANGUAGE cpp
+    OUT_VAR MINIRPC_PROTO_GENERATED
+
+    PROTOC_OUT_DIR
+    ${MINIRPC_PROTO_GEN_DIR}
+
+    APPEND_PATH
+
+    PROTOS
+    ${CMAKE_SOURCE_DIR}/proto/rpc_header.proto
+)
+
+
+# ==================================================
+# MiniRPC Framework
 # ==================================================
 
 add_library(
@@ -20,7 +59,7 @@ add_library(
     src/minirpc/rpc_dispatcher.cpp
     src/minirpc/rpc_channel.cpp
 
-    proto/rpc_header.pb.cc
+    ${MINIRPC_PROTO_GENERATED}
 )
 
 target_include_directories(
@@ -28,7 +67,7 @@ target_include_directories(
 
     PUBLIC
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_SOURCE_DIR}
+    ${MINIRPC_PROTO_GEN_DIR}
 )
 
 target_link_libraries(
@@ -40,7 +79,46 @@ target_link_libraries(
 
 
 # ==================================================
-# Calculator Example Server
+# Calculator protocol
+# ==================================================
+
+protobuf_generate(
+    LANGUAGE cpp
+    OUT_VAR CALCULATOR_PROTO_GENERATED
+
+    PROTOC_OUT_DIR
+    ${CALCULATOR_PROTO_GEN_DIR}
+
+    APPEND_PATH
+
+    PROTOS
+    ${CMAKE_SOURCE_DIR}/examples/calculator/calculator.proto
+)
+
+add_library(
+    calculator_proto
+    STATIC
+
+    ${CALCULATOR_PROTO_GENERATED}
+)
+
+target_include_directories(
+    calculator_proto
+
+    PUBLIC
+    ${CALCULATOR_PROTO_GEN_DIR}
+)
+
+target_link_libraries(
+    calculator_proto
+
+    PUBLIC
+    protobuf::libprotobuf
+)
+
+
+# ==================================================
+# Calculator Server
 # ==================================================
 
 add_executable(
@@ -48,7 +126,6 @@ add_executable(
 
     examples/calculator/server.cpp
     examples/calculator/calculator_service.cpp
-    examples/calculator/calculator.pb.cc
 )
 
 target_include_directories(
@@ -63,18 +140,18 @@ target_link_libraries(
 
     PRIVATE
     minirpc
+    calculator_proto
 )
 
 
 # ==================================================
-# Calculator Example Client
+# Calculator Client
 # ==================================================
 
 add_executable(
     rpc_client
 
     examples/calculator/client.cpp
-    examples/calculator/calculator.pb.cc
 )
 
 target_include_directories(
@@ -89,4 +166,5 @@ target_link_libraries(
 
     PRIVATE
     minirpc
+    calculator_proto
 )
