@@ -54,6 +54,7 @@ add_executable(
     src/rpc_server.cpp
     src/rpc_server_core.cpp
     src/rpc_dispatcher.cpp
+    src/calculator_service.cpp
     proto/calculator.pb.cc
     proto/rpc_header.pb.cc
 )
