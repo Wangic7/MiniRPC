@@ -71,6 +71,7 @@ target_link_libraries(
 add_executable(
     rpc_client
     src/rpc_client.cpp
+    src/rpc_channel.cpp
     proto/calculator.pb.cc
     proto/rpc_header.pb.cc
 )
