@@ -14,6 +14,12 @@
 
 #include <sys/time.h>
 
+
+#include <cerrno>
+#include <fcntl.h>
+#include <poll.h>
+
+
 RpcChannel::RpcChannel(
     std::string host,
     uint16_t port,
@@ -224,18 +230,165 @@ if (setsockopt(
     }
 
     // 5. 连接 Server
-    if (connect(
-            sockfd,
-            reinterpret_cast<sockaddr*>(
-                &server_addr),
-            sizeof(server_addr)) < 0)
+// =================================
+// Connect timeout
+// =================================
+
+// 保存原来的 socket flags
+int old_flags = fcntl(
+    sockfd,
+    F_GETFL,
+    0
+);
+
+if (old_flags < 0)
+{
+    std::cerr
+        << "fcntl(F_GETFL) failed"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+// 临时设置为 non-blocking
+if (fcntl(
+        sockfd,
+        F_SETFL,
+        old_flags | O_NONBLOCK) < 0)
+{
+    std::cerr
+        << "fcntl(F_SETFL) failed"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+int connect_result = connect(
+    sockfd,
+    reinterpret_cast<sockaddr*>(
+        &server_addr),
+    sizeof(server_addr)
+);
+
+if (connect_result < 0)
+{
+    // 对 non-blocking connect 来说，
+    // EINPROGRESS 表示连接正在建立，并不是失败。
+    if (errno != EINPROGRESS)
     {
-        std::cerr << "connect() failed"
-                  << std::endl;
+        std::cerr
+            << "connect() failed"
+            << std::endl;
 
         close(sockfd);
         return false;
     }
+
+    pollfd pfd{};
+
+    pfd.fd = sockfd;
+    pfd.events = POLLOUT;
+
+    int poll_result = poll(
+        &pfd,
+        1,
+        timeout_ms_
+    );
+
+    if (poll_result == 0)
+    {
+        std::cerr
+            << "RPC connect timed out after "
+            << timeout_ms_
+            << " ms"
+            << std::endl;
+
+        close(sockfd);
+        return false;
+    }
+
+    if (poll_result < 0)
+    {
+        std::cerr
+            << "poll() failed while connecting"
+            << std::endl;
+
+        close(sockfd);
+        return false;
+    }
+
+    // poll 可写不一定代表连接成功，
+    // 必须读取 SO_ERROR 再确认。
+
+//  poll()
+//   ↓
+// socket 可写  
+//   ↓
+// getsockopt(SO_ERROR)
+//   ├─ 0       → connect 成功
+//   └─ 非0     → connect 失败
+    int socket_error = 0;
+    socklen_t error_length =
+        sizeof(socket_error);
+
+    if (getsockopt(
+            sockfd,
+            SOL_SOCKET,
+            SO_ERROR,
+            &socket_error,
+            &error_length) < 0)
+    {
+        std::cerr
+            << "getsockopt(SO_ERROR) failed"
+            << std::endl;
+
+        close(sockfd);
+        return false;
+    }
+
+    if (socket_error != 0)
+    {
+        std::cerr
+            << "connect() failed with error "
+            << socket_error
+            << std::endl;
+
+        close(sockfd);
+        return false;
+    }
+}
+
+// 连接成功后恢复 blocking 模式
+// 现有的
+// SendAll()
+// RecvAll()
+// 都是按照 blocking socket 写的。所以我们的设计是：
+// 连接阶段
+//     ↓
+// non-blocking + poll
+//     ↓
+// 连接完成
+//     ↓
+// 恢复 blocking
+//     ↓
+// SO_SNDTIMEO / SO_RCVTIMEO
+//     ↓
+// SendAll / RecvAll
+//这样不用一下把整个网络层都重写成非阻塞状态机。
+if (fcntl(
+        sockfd,
+        F_SETFL,
+        old_flags) < 0)
+{
+    std::cerr
+        << "Failed to restore blocking mode"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
 
     // 6. 发送 RPC 请求
     if (!SendAll(
