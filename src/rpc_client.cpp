@@ -2,7 +2,7 @@
 #include <string>
 
 #include "proto/calculator.pb.h"
-#include "rpc_channel.h"
+#include <minirpc/rpc_channel.h>
 
 int main(int argc, char* argv[])
 {

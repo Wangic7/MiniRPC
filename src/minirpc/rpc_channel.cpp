@@ -1,4 +1,4 @@
-#include "rpc_channel.h"
+#include <minirpc/rpc_channel.h>
 
 #include <arpa/inet.h>
 #include <sys/socket.h>

@@ -1,4 +1,4 @@
-#include "rpc_dispatcher.h"
+#include <minirpc/rpc_dispatcher.h>
 
 std::string RpcDispatcher::MakeKey(
     const std::string& service_name,

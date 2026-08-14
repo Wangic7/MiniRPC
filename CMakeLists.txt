@@ -18,9 +18,9 @@ include_directories("${CMAKE_SOURCE_DIR}")
 add_library(
     minirpc
     STATIC
-    src/rpc_server_core.cpp
-    src/rpc_dispatcher.cpp
-    src/rpc_channel.cpp
+    src/minirpc/rpc_server.cpp
+    src/minirpc/rpc_dispatcher.cpp
+    src/minirpc/rpc_channel.cpp
     proto/rpc_header.pb.cc
 )
 
@@ -33,8 +33,8 @@ target_link_libraries(
 target_include_directories(
     minirpc
     PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/src
 )
 
 # =========================

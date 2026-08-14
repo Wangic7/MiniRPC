@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "calculator_service.h"
-#include "rpc_server.h"
+#include <minirpc/rpc_server.h>
 
 int main()
 {

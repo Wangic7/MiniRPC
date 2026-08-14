@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string>
 
-#include "rpc_dispatcher.h"
+#include <minirpc/rpc_dispatcher.h>
 
 class RpcServer
 {
