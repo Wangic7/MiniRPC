@@ -7,6 +7,8 @@
 #include "proto/calculator.pb.h"
 #include "proto/rpc_header.pb.h"
 
+#include "rpc_dispatcher.h"
+
 // 确保从 TCP 中接收到指定数量的字节
 bool recv_all(int sockfd, void* buffer, size_t length)
 {
@@ -61,6 +63,41 @@ bool send_all(int sockfd, const void* buffer, size_t length)
 
 int main()
 {
+    RpcDispatcher dispatcher;
+
+dispatcher.Register(
+    "Calculator",
+    "Add",
+    [](const std::string& request_data,
+       std::string& response_data)
+    {
+        minirpc::AddRequest request;
+
+        if (!request.ParseFromString(request_data))
+        {
+            return false;
+        }
+
+        minirpc::AddResponse response;
+
+        response.set_result(
+            request.a() + request.b()
+        );
+
+        std::cout
+            << "Executing Calculator.Add("
+            << request.a()
+            << ", "
+            << request.b()
+            << ")"
+            << std::endl;
+
+        return response.SerializeToString(
+            &response_data
+        );
+    }
+);
+    
     // 1. 创建 TCP socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -173,56 +210,35 @@ int main()
         return 1;
     }
 
-    // 9. 解析 AddRequest
-    minirpc::AddRequest request;
+    std::string response_data;
 
-    if (!request.ParseFromString(args_data))
-    {
-        std::cerr << "Failed to parse AddRequest"
-                  << std::endl;
-        return 1;
-    }
-
-    std::cout << "\n===== RPC Request ====="
-              << std::endl;
-
-    std::cout << "Service: "
-              << header.service_name()
-              << std::endl;
-
-    std::cout << "Method : "
-              << header.method_name()
-              << std::endl;
-
-    std::cout << "a = "
-              << request.a()
-              << std::endl;
-
-    std::cout << "b = "
-              << request.b()
-              << std::endl;
-
-    std::cout << "Result = "
-              << request.a() + request.b()
-              << std::endl;
-    // 10. 构造 RPC 响应
-minirpc::AddResponse response;
-
-response.set_result(
-    request.a() + request.b()
-);
-
-std::string response_data;
-
-if (!response.SerializeToString(&response_data))
+if (!dispatcher.Dispatch(
+        header.service_name(),
+        header.method_name(),
+        args_data,
+        response_data))
 {
-    std::cerr << "Failed to serialize response"
-              << std::endl;
+    std::cerr
+        << "RPC method not found or execution failed: "
+        << header.service_name()
+        << "."
+        << header.method_name()
+        << std::endl;
 
     close(client_fd);
     close(server_fd);
+
     return 1;
 }
+
+std::cout << std::endl;
+
+std::cout
+    << "RPC dispatched successfully: "
+    << header.service_name()
+    << "."
+    << header.method_name()
+    << std::endl;
 
 // 11. 先发送响应长度
 uint32_t response_size =

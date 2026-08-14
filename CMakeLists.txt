@@ -7,9 +7,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Protobuf REQUIRED)
 
-# 告诉编译器从 MiniRPC 项目根目录寻找头文件
+# 让代码可以通过
+# #include "proto/xxx.pb.h"
+# 找到项目根目录下的头文件
 include_directories("${CMAKE_SOURCE_DIR}")
 
+
+# =========================
+# Protobuf demo
+# =========================
 add_executable(
     protobuf_demo
     src/protobuf_demo.cpp
@@ -20,9 +26,12 @@ target_link_libraries(
     protobuf_demo
     PRIVATE
     protobuf::libprotobuf
-)   
+)
 
 
+# =========================
+# RPC codec demo
+# =========================
 add_executable(
     rpc_codec_demo
     src/rpc_codec_demo.cpp
@@ -36,9 +45,14 @@ target_link_libraries(
     protobuf::libprotobuf
 )
 
+
+# =========================
+# RPC Server
+# =========================
 add_executable(
     rpc_server
     src/rpc_server.cpp
+    src/rpc_dispatcher.cpp
     proto/calculator.pb.cc
     proto/rpc_header.pb.cc
 )
@@ -49,6 +63,10 @@ target_link_libraries(
     protobuf::libprotobuf
 )
 
+
+# =========================
+# RPC Client
+# =========================
 add_executable(
     rpc_client
     src/rpc_client.cpp
