@@ -51,10 +51,18 @@ extern AddRequestDefaultTypeInternal _AddRequest_default_instance_;
 class AddResponse;
 struct AddResponseDefaultTypeInternal;
 extern AddResponseDefaultTypeInternal _AddResponse_default_instance_;
+class SubtractRequest;
+struct SubtractRequestDefaultTypeInternal;
+extern SubtractRequestDefaultTypeInternal _SubtractRequest_default_instance_;
+class SubtractResponse;
+struct SubtractResponseDefaultTypeInternal;
+extern SubtractResponseDefaultTypeInternal _SubtractResponse_default_instance_;
 }  // namespace minirpc
 PROTOBUF_NAMESPACE_OPEN
 template<> ::minirpc::AddRequest* Arena::CreateMaybeMessage<::minirpc::AddRequest>(Arena*);
 template<> ::minirpc::AddResponse* Arena::CreateMaybeMessage<::minirpc::AddResponse>(Arena*);
+template<> ::minirpc::SubtractRequest* Arena::CreateMaybeMessage<::minirpc::SubtractRequest>(Arena*);
+template<> ::minirpc::SubtractResponse* Arena::CreateMaybeMessage<::minirpc::SubtractResponse>(Arena*);
 PROTOBUF_NAMESPACE_CLOSE
 namespace minirpc {
 
@@ -365,6 +373,313 @@ class AddResponse final :
   union { Impl_ _impl_; };
   friend struct ::TableStruct_proto_2fcalculator_2eproto;
 };
+// -------------------------------------------------------------------
+
+class SubtractRequest final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:minirpc.SubtractRequest) */ {
+ public:
+  inline SubtractRequest() : SubtractRequest(nullptr) {}
+  ~SubtractRequest() override;
+  explicit PROTOBUF_CONSTEXPR SubtractRequest(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  SubtractRequest(const SubtractRequest& from);
+  SubtractRequest(SubtractRequest&& from) noexcept
+    : SubtractRequest() {
+    *this = ::std::move(from);
+  }
+
+  inline SubtractRequest& operator=(const SubtractRequest& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline SubtractRequest& operator=(SubtractRequest&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const SubtractRequest& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const SubtractRequest* internal_default_instance() {
+    return reinterpret_cast<const SubtractRequest*>(
+               &_SubtractRequest_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    2;
+
+  friend void swap(SubtractRequest& a, SubtractRequest& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(SubtractRequest* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(SubtractRequest* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  SubtractRequest* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<SubtractRequest>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const SubtractRequest& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom( const SubtractRequest& from) {
+    SubtractRequest::MergeImpl(*this, from);
+  }
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _impl_._cached_size_.Get(); }
+
+  private:
+  void SharedCtor(::PROTOBUF_NAMESPACE_ID::Arena* arena, bool is_message_owned);
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(SubtractRequest* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "minirpc.SubtractRequest";
+  }
+  protected:
+  explicit SubtractRequest(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kAFieldNumber = 1,
+    kBFieldNumber = 2,
+  };
+  // int32 a = 1;
+  void clear_a();
+  int32_t a() const;
+  void set_a(int32_t value);
+  private:
+  int32_t _internal_a() const;
+  void _internal_set_a(int32_t value);
+  public:
+
+  // int32 b = 2;
+  void clear_b();
+  int32_t b() const;
+  void set_b(int32_t value);
+  private:
+  int32_t _internal_b() const;
+  void _internal_set_b(int32_t value);
+  public:
+
+  // @@protoc_insertion_point(class_scope:minirpc.SubtractRequest)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  struct Impl_ {
+    int32_t a_;
+    int32_t b_;
+    mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  };
+  union { Impl_ _impl_; };
+  friend struct ::TableStruct_proto_2fcalculator_2eproto;
+};
+// -------------------------------------------------------------------
+
+class SubtractResponse final :
+    public ::PROTOBUF_NAMESPACE_ID::Message /* @@protoc_insertion_point(class_definition:minirpc.SubtractResponse) */ {
+ public:
+  inline SubtractResponse() : SubtractResponse(nullptr) {}
+  ~SubtractResponse() override;
+  explicit PROTOBUF_CONSTEXPR SubtractResponse(::PROTOBUF_NAMESPACE_ID::internal::ConstantInitialized);
+
+  SubtractResponse(const SubtractResponse& from);
+  SubtractResponse(SubtractResponse&& from) noexcept
+    : SubtractResponse() {
+    *this = ::std::move(from);
+  }
+
+  inline SubtractResponse& operator=(const SubtractResponse& from) {
+    CopyFrom(from);
+    return *this;
+  }
+  inline SubtractResponse& operator=(SubtractResponse&& from) noexcept {
+    if (this == &from) return *this;
+    if (GetOwningArena() == from.GetOwningArena()
+  #ifdef PROTOBUF_FORCE_COPY_IN_MOVE
+        && GetOwningArena() != nullptr
+  #endif  // !PROTOBUF_FORCE_COPY_IN_MOVE
+    ) {
+      InternalSwap(&from);
+    } else {
+      CopyFrom(from);
+    }
+    return *this;
+  }
+
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* descriptor() {
+    return GetDescriptor();
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Descriptor* GetDescriptor() {
+    return default_instance().GetMetadata().descriptor;
+  }
+  static const ::PROTOBUF_NAMESPACE_ID::Reflection* GetReflection() {
+    return default_instance().GetMetadata().reflection;
+  }
+  static const SubtractResponse& default_instance() {
+    return *internal_default_instance();
+  }
+  static inline const SubtractResponse* internal_default_instance() {
+    return reinterpret_cast<const SubtractResponse*>(
+               &_SubtractResponse_default_instance_);
+  }
+  static constexpr int kIndexInFileMessages =
+    3;
+
+  friend void swap(SubtractResponse& a, SubtractResponse& b) {
+    a.Swap(&b);
+  }
+  inline void Swap(SubtractResponse* other) {
+    if (other == this) return;
+  #ifdef PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() != nullptr &&
+        GetOwningArena() == other->GetOwningArena()) {
+   #else  // PROTOBUF_FORCE_COPY_IN_SWAP
+    if (GetOwningArena() == other->GetOwningArena()) {
+  #endif  // !PROTOBUF_FORCE_COPY_IN_SWAP
+      InternalSwap(other);
+    } else {
+      ::PROTOBUF_NAMESPACE_ID::internal::GenericSwap(this, other);
+    }
+  }
+  void UnsafeArenaSwap(SubtractResponse* other) {
+    if (other == this) return;
+    GOOGLE_DCHECK(GetOwningArena() == other->GetOwningArena());
+    InternalSwap(other);
+  }
+
+  // implements Message ----------------------------------------------
+
+  SubtractResponse* New(::PROTOBUF_NAMESPACE_ID::Arena* arena = nullptr) const final {
+    return CreateMaybeMessage<SubtractResponse>(arena);
+  }
+  using ::PROTOBUF_NAMESPACE_ID::Message::CopyFrom;
+  void CopyFrom(const SubtractResponse& from);
+  using ::PROTOBUF_NAMESPACE_ID::Message::MergeFrom;
+  void MergeFrom( const SubtractResponse& from) {
+    SubtractResponse::MergeImpl(*this, from);
+  }
+  private:
+  static void MergeImpl(::PROTOBUF_NAMESPACE_ID::Message& to_msg, const ::PROTOBUF_NAMESPACE_ID::Message& from_msg);
+  public:
+  PROTOBUF_ATTRIBUTE_REINITIALIZES void Clear() final;
+  bool IsInitialized() const final;
+
+  size_t ByteSizeLong() const final;
+  const char* _InternalParse(const char* ptr, ::PROTOBUF_NAMESPACE_ID::internal::ParseContext* ctx) final;
+  uint8_t* _InternalSerialize(
+      uint8_t* target, ::PROTOBUF_NAMESPACE_ID::io::EpsCopyOutputStream* stream) const final;
+  int GetCachedSize() const final { return _impl_._cached_size_.Get(); }
+
+  private:
+  void SharedCtor(::PROTOBUF_NAMESPACE_ID::Arena* arena, bool is_message_owned);
+  void SharedDtor();
+  void SetCachedSize(int size) const final;
+  void InternalSwap(SubtractResponse* other);
+
+  private:
+  friend class ::PROTOBUF_NAMESPACE_ID::internal::AnyMetadata;
+  static ::PROTOBUF_NAMESPACE_ID::StringPiece FullMessageName() {
+    return "minirpc.SubtractResponse";
+  }
+  protected:
+  explicit SubtractResponse(::PROTOBUF_NAMESPACE_ID::Arena* arena,
+                       bool is_message_owned = false);
+  public:
+
+  static const ClassData _class_data_;
+  const ::PROTOBUF_NAMESPACE_ID::Message::ClassData*GetClassData() const final;
+
+  ::PROTOBUF_NAMESPACE_ID::Metadata GetMetadata() const final;
+
+  // nested types ----------------------------------------------------
+
+  // accessors -------------------------------------------------------
+
+  enum : int {
+    kResultFieldNumber = 1,
+  };
+  // int32 result = 1;
+  void clear_result();
+  int32_t result() const;
+  void set_result(int32_t value);
+  private:
+  int32_t _internal_result() const;
+  void _internal_set_result(int32_t value);
+  public:
+
+  // @@protoc_insertion_point(class_scope:minirpc.SubtractResponse)
+ private:
+  class _Internal;
+
+  template <typename T> friend class ::PROTOBUF_NAMESPACE_ID::Arena::InternalHelper;
+  typedef void InternalArenaConstructable_;
+  typedef void DestructorSkippable_;
+  struct Impl_ {
+    int32_t result_;
+    mutable ::PROTOBUF_NAMESPACE_ID::internal::CachedSize _cached_size_;
+  };
+  union { Impl_ _impl_; };
+  friend struct ::TableStruct_proto_2fcalculator_2eproto;
+};
 // ===================================================================
 
 
@@ -440,9 +755,81 @@ inline void AddResponse::set_result(int32_t value) {
   // @@protoc_insertion_point(field_set:minirpc.AddResponse.result)
 }
 
+// -------------------------------------------------------------------
+
+// SubtractRequest
+
+// int32 a = 1;
+inline void SubtractRequest::clear_a() {
+  _impl_.a_ = 0;
+}
+inline int32_t SubtractRequest::_internal_a() const {
+  return _impl_.a_;
+}
+inline int32_t SubtractRequest::a() const {
+  // @@protoc_insertion_point(field_get:minirpc.SubtractRequest.a)
+  return _internal_a();
+}
+inline void SubtractRequest::_internal_set_a(int32_t value) {
+  
+  _impl_.a_ = value;
+}
+inline void SubtractRequest::set_a(int32_t value) {
+  _internal_set_a(value);
+  // @@protoc_insertion_point(field_set:minirpc.SubtractRequest.a)
+}
+
+// int32 b = 2;
+inline void SubtractRequest::clear_b() {
+  _impl_.b_ = 0;
+}
+inline int32_t SubtractRequest::_internal_b() const {
+  return _impl_.b_;
+}
+inline int32_t SubtractRequest::b() const {
+  // @@protoc_insertion_point(field_get:minirpc.SubtractRequest.b)
+  return _internal_b();
+}
+inline void SubtractRequest::_internal_set_b(int32_t value) {
+  
+  _impl_.b_ = value;
+}
+inline void SubtractRequest::set_b(int32_t value) {
+  _internal_set_b(value);
+  // @@protoc_insertion_point(field_set:minirpc.SubtractRequest.b)
+}
+
+// -------------------------------------------------------------------
+
+// SubtractResponse
+
+// int32 result = 1;
+inline void SubtractResponse::clear_result() {
+  _impl_.result_ = 0;
+}
+inline int32_t SubtractResponse::_internal_result() const {
+  return _impl_.result_;
+}
+inline int32_t SubtractResponse::result() const {
+  // @@protoc_insertion_point(field_get:minirpc.SubtractResponse.result)
+  return _internal_result();
+}
+inline void SubtractResponse::_internal_set_result(int32_t value) {
+  
+  _impl_.result_ = value;
+}
+inline void SubtractResponse::set_result(int32_t value) {
+  _internal_set_result(value);
+  // @@protoc_insertion_point(field_set:minirpc.SubtractResponse.result)
+}
+
 #ifdef __GNUC__
   #pragma GCC diagnostic pop
 #endif  // __GNUC__
+// -------------------------------------------------------------------
+
+// -------------------------------------------------------------------
+
 // -------------------------------------------------------------------
 
 

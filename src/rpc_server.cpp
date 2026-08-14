@@ -97,6 +97,40 @@ dispatcher.Register(
         );
     }
 );
+
+
+dispatcher.Register(
+    "Calculator",
+    "Subtract",
+    [](const std::string& request_data,
+       std::string& response_data)
+    {
+        minirpc::SubtractRequest request;
+
+        if (!request.ParseFromString(request_data))
+        {
+            return false;
+        }
+
+        minirpc::SubtractResponse response;
+
+        response.set_result(
+            request.a() - request.b()
+        );
+
+        std::cout
+            << "Executing Calculator.Subtract("
+            << request.a()
+            << ", "
+            << request.b()
+            << ")"
+            << std::endl;
+
+        return response.SerializeToString(
+            &response_data
+        );
+    }
+);
     
     // 1. 创建 TCP socket
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -106,6 +140,22 @@ dispatcher.Register(
         std::cerr << "socket() failed" << std::endl;
         return 1;
     }
+
+
+    // 允许服务器快速重新绑定同一个端口
+    int opt = 1;
+
+    if (setsockopt(
+        server_fd,
+        SOL_SOCKET,
+        SO_REUSEADDR,
+        &opt,
+        sizeof(opt)) < 0)
+{
+    std::cerr << "setsockopt() failed" << std::endl;
+    close(server_fd);
+    return 1;
+}
 
     // 2. 配置服务器地址
     sockaddr_in server_addr{};

@@ -59,27 +59,74 @@ bool recv_all(int sockfd, void* buffer, size_t length)
     return true;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     // 1. 创建业务请求
-    minirpc::AddRequest request;
-    request.set_a(10);
-    request.set_b(20);
+    if (argc != 4)
+{
+    std::cerr
+        << "Usage: ./rpc_client <add|subtract> <a> <b>"
+        << std::endl;
 
-    std::string args_data;
+    return 1;
+}
+
+std::string operation = argv[1];
+
+int a = std::stoi(argv[2]);
+int b = std::stoi(argv[3]);
+
+std::string method_name;
+std::string args_data;
+
+if (operation == "add")
+{
+    method_name = "Add";
+
+    minirpc::AddRequest request;
+
+    request.set_a(a);
+    request.set_b(b);
 
     if (!request.SerializeToString(&args_data))
     {
         std::cerr << "Serialize AddRequest failed"
                   << std::endl;
+
         return 1;
     }
+}
+else if (operation == "subtract")
+{
+    method_name = "Subtract";
+
+    minirpc::SubtractRequest request;
+
+    request.set_a(a);
+    request.set_b(b);
+
+    if (!request.SerializeToString(&args_data))
+    {
+        std::cerr << "Serialize SubtractRequest failed"
+                  << std::endl;
+
+        return 1;
+    }
+}
+else
+{
+    std::cerr << "Unknown operation: "
+              << operation
+              << std::endl;
+
+    return 1;
+}
 
     // 2. 创建 RPC Header
     minirpc::RpcHeader header;
 
     header.set_service_name("Calculator");
-    header.set_method_name("Add");
+    header.set_method_name(method_name);
     header.set_args_size(
         static_cast<uint32_t>(args_data.size())
     );
@@ -173,11 +220,15 @@ int main()
     std::cout << "Service: Calculator"
               << std::endl;
 
-    std::cout << "Method : Add"
-              << std::endl;
+    std::cout << "Method : "
+          << method_name
+          << std::endl;
 
-    std::cout << "Args   : 10, 20"
-              << std::endl;
+    std::cout << "Args   : "
+          << a
+          << ", "
+          << b
+          << std::endl;
 
     std::cout << "Packet size: "
           << packet.size()
@@ -219,30 +270,51 @@ if (!recv_all(
     return 1;
 }
 
-// 11. 解析 AddResponse
-minirpc::AddResponse response;
+int result = 0;
 
-if (!response.ParseFromString(response_data))
+if (method_name == "Add")
 {
-    std::cerr << "Failed to parse AddResponse"
-              << std::endl;
+    minirpc::AddResponse response;
 
-    close(sockfd);
-    return 1;
+    if (!response.ParseFromString(response_data))
+    {
+        std::cerr << "Failed to parse AddResponse"
+                  << std::endl;
+
+        close(sockfd);
+        return 1;
+    }
+
+    result = response.result();
+}
+else
+{
+    minirpc::SubtractResponse response;
+
+    if (!response.ParseFromString(response_data))
+    {
+        std::cerr << "Failed to parse SubtractResponse"
+                  << std::endl;
+
+        close(sockfd);
+        return 1;
+    }
+
+    result = response.result();
 }
 
 std::cout << std::endl;
+
 std::cout << "===== RPC Response ====="
           << std::endl;
 
 std::cout << "Result = "
-          << response.result()
+          << result
           << std::endl;
 
-    close(sockfd);
 
 
-close(sockfd);
+
 
     close(sockfd);
 
