@@ -18,7 +18,6 @@ public:
     std::size_t worker_count = 4
     );
 
-    RpcServer() = default;
 
     void RegisterMethod(
         const std::string& service_name,
