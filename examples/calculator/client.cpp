@@ -124,6 +124,33 @@ int main(int argc, char* argv[])
     }
 }
 
+    else if (operation == "slow")
+{
+    minirpc::AddRequest request;
+    minirpc::AddResponse response;
+
+    request.set_a(a);
+    request.set_b(b);
+
+    if (!channel.Call(
+            "Calculator",
+            "SlowAdd",
+            request,
+            response))
+    {
+        std::cerr
+            << "Slow RPC failed or timed out."
+            << std::endl;
+
+        return 1;
+    }
+
+    std::cout
+        << "SlowAdd result = "
+        << response.result()
+        << std::endl;
+}
+
     else
     {
         std::cerr

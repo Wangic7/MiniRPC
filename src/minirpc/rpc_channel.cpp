@@ -12,11 +12,15 @@
 
 #include "rpc_header.pb.h"
 
+#include <sys/time.h>
+
 RpcChannel::RpcChannel(
     std::string host,
-    uint16_t port)
+    uint16_t port,
+    int timeout_ms)
     : host_(std::move(host)),
-      port_(port)
+      port_(port),
+      timeout_ms_(timeout_ms)
 {
 }
 
@@ -163,6 +167,44 @@ header.set_request_id(request_id);
         return false;
     }
 
+    timeval timeout{};
+
+timeout.tv_sec =
+    timeout_ms_ / 1000;
+
+timeout.tv_usec =
+    (timeout_ms_ % 1000) * 1000;
+
+if (setsockopt(
+        sockfd,
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        &timeout,
+        sizeof(timeout)) < 0)
+{
+    std::cerr
+        << "Failed to set receive timeout"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+if (setsockopt(
+        sockfd,
+        SOL_SOCKET,
+        SO_SNDTIMEO,
+        &timeout,
+        sizeof(timeout)) < 0)
+{
+    std::cerr
+        << "Failed to set send timeout"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
     sockaddr_in server_addr{};
 
     server_addr.sin_family = AF_INET;
@@ -220,7 +262,9 @@ if (!RecvAll(
         sizeof(network_response_header_size)))
 {
     std::cerr
-        << "Failed to receive response header size"
+        << "RPC receive failed or timed out after "
+        << timeout_ms_
+        << " ms"
         << std::endl;
 
     close(sockfd);

@@ -10,7 +10,8 @@ class RpcChannel
 public:
     RpcChannel(
         std::string host,
-        uint16_t port
+        uint16_t port,
+        int timeout_ms = 3000
     );
 
     bool Call(
@@ -36,4 +37,5 @@ private:
 private:
     std::string host_;
     uint16_t port_;
+    int timeout_ms_;
 };

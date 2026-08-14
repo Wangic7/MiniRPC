@@ -65,7 +65,7 @@ bool RpcServer::SendAll(
             sockfd,
             data + sent,
             length - sent,
-            0
+            MSG_NOSIGNAL//客户端提前断开时，Server 不会因为 SIGPIPE 被直接杀掉
         );
 
         if (n <= 0)

@@ -19,4 +19,9 @@ private:
         const std::string& request_data,
         std::string& response_data
     );
+
+    bool SlowAdd(
+    const std::string& request_data,
+    std::string& response_data
+    );
 };
