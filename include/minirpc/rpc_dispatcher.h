@@ -18,6 +18,11 @@ public:
         Handler handler
     );
 
+    bool HasMethod(
+    const std::string& service_name,
+    const std::string& method_name
+    ) const;
+
     bool Dispatch(
         const std::string& service_name,
         const std::string& method_name,

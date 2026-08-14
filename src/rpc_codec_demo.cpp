@@ -4,7 +4,7 @@
 #include <string>
 
 #include "proto/calculator.pb.h"
-#include "proto/rpc_header.pb.h"
+#include "rpc_header.pb.h"
 
 int main()
 {

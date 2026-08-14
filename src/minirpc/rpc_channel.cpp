@@ -1,5 +1,7 @@
 #include <minirpc/rpc_channel.h>
 
+#include <atomic>
+
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -99,8 +101,17 @@ bool RpcChannel::Call(
     // 2. 构造 RPC Header
     minirpc::RpcHeader header;
 
-    header.set_service_name(service_name);
-    header.set_method_name(method_name);
+static std::atomic<uint64_t> next_request_id{1};//用atomic是为了后面做多线程客户端时仍然安全
+
+uint64_t request_id =
+    next_request_id.fetch_add(
+        1,
+        std::memory_order_relaxed
+    );
+
+header.set_service_name(service_name);
+header.set_method_name(method_name);
+header.set_request_id(request_id);
 
     header.set_args_size(
         static_cast<uint32_t>(
@@ -197,31 +208,114 @@ bool RpcChannel::Call(
         return false;
     }
 
-    // 7. 接收 response_size
-    uint32_t network_response_size = 0;
+    // =================================
+// 7. 接收 Response Header 长度
+// =================================
 
-    if (!RecvAll(
-            sockfd,
-            &network_response_size,
-            sizeof(network_response_size)))
-    {
-        std::cerr
-            << "Failed to receive response size"
-            << std::endl;
+uint32_t network_response_header_size = 0;
 
-        close(sockfd);
-        return false;
-    }
+if (!RecvAll(
+        sockfd,
+        &network_response_header_size,
+        sizeof(network_response_header_size)))
+{
+    std::cerr
+        << "Failed to receive response header size"
+        << std::endl;
 
-    uint32_t response_size =
-        ntohl(network_response_size);
+    close(sockfd);
+    return false;
+}
 
-    // 8. 接收 RPC Response
-    std::string response_data(
-        response_size,
-        '\0'
-    );
+uint32_t response_header_size =
+    ntohl(network_response_header_size);
 
+
+// =================================
+// 8. 接收 Response Header
+// =================================
+
+std::string response_header_data(
+    response_header_size,
+    '\0'
+);
+
+if (!RecvAll(
+        sockfd,
+        response_header_data.data(),
+        response_header_size))
+{
+    std::cerr
+        << "Failed to receive response header"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+minirpc::RpcResponseHeader response_header;
+
+if (!response_header.ParseFromString(
+        response_header_data))
+{
+    std::cerr
+        << "Failed to parse response header"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+
+// =================================
+// 9. 校验 request_id
+// =================================
+
+if (response_header.request_id()
+    != request_id)
+{
+    std::cerr
+        << "RPC request_id mismatch"
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+
+// =================================
+// 10. 检查 RPC 错误
+// =================================
+
+if (response_header.error_code()
+    != minirpc::RPC_OK)
+{
+    std::cerr
+        << "RPC error: "
+        << response_header.error_code()
+        << " - "
+        << response_header.error_message()
+        << std::endl;
+
+    close(sockfd);
+    return false;
+}
+
+
+// =================================
+// 11. 接收业务 Response
+// =================================
+
+uint32_t response_size =
+    response_header.payload_size();
+
+std::string response_data(
+    response_size,
+    '\0'
+);
+
+if (response_size > 0)
+{
     if (!RecvAll(
             sockfd,
             response_data.data(),
@@ -234,19 +328,26 @@ bool RpcChannel::Call(
         close(sockfd);
         return false;
     }
+}
 
-    close(sockfd);
+close(sockfd);
 
-    // 9. 反序列化
-    if (!response.ParseFromString(
-            response_data))
-    {
-        std::cerr
-            << "Failed to parse RPC response"
-            << std::endl;
 
-        return false;
-    }
+// =================================
+// 12. 反序列化业务 Response
+// =================================
+
+if (!response.ParseFromString(
+        response_data))
+{
+    std::cerr
+        << "Failed to parse RPC response"
+        << std::endl;
+
+    return false;
+}
+
+return true;
 
     return true;
 }

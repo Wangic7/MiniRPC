@@ -127,40 +127,118 @@ bool RpcServer::HandleClient(int client_fd)
         return false;
     }
 
+    
     std::string response_data;
 
-    if (!dispatcher_.Dispatch(
-            header.service_name(),
-            header.method_name(),
-            args_data,
-            response_data))
-    {
-        std::cerr
-            << "RPC dispatch failed: "
-            << header.service_name()
-            << "."
-            << header.method_name()
-            << std::endl;
+minirpc::RpcErrorCode error_code =
+    minirpc::RPC_OK;
 
-        return false;
-    }
+std::string error_message;
 
-    uint32_t response_size =
-        static_cast<uint32_t>(
-            response_data.size()
-        );
+// 方法不存在
+if (!dispatcher_.HasMethod(
+        header.service_name(),
+        header.method_name()))
+{
+    error_code =
+        minirpc::RPC_METHOD_NOT_FOUND;
 
-    uint32_t network_response_size =
-        htonl(response_size);
+    error_message =
+        "RPC method not found";
 
-    if (!SendAll(
-            client_fd,
-            &network_response_size,
-            sizeof(network_response_size)))
-    {
-        return false;
-    }
+    response_data.clear();
+}
 
+// 方法存在，执行失败
+else if (!dispatcher_.Dispatch(
+             header.service_name(),
+             header.method_name(),
+             args_data,
+             response_data))
+{
+    error_code =
+        minirpc::RPC_BAD_REQUEST;
+
+    error_message =
+        "RPC request execution failed";
+
+    response_data.clear();
+}
+
+
+// =================================
+// 构造 RPC Response Header
+// =================================
+
+minirpc::RpcResponseHeader response_header;
+
+response_header.set_request_id(
+    header.request_id()
+);
+
+response_header.set_error_code(
+    error_code
+);
+
+response_header.set_error_message(
+    error_message
+);
+
+response_header.set_payload_size(
+    static_cast<uint32_t>(
+        response_data.size()
+    )
+);
+
+std::string response_header_data;
+
+if (!response_header.SerializeToString(
+        &response_header_data))
+{
+    return false;
+}
+
+
+// =================================
+// 发送 Response Header 长度
+// =================================
+
+uint32_t response_header_size =
+    static_cast<uint32_t>(
+        response_header_data.size()
+    );
+
+uint32_t network_response_header_size =
+    htonl(response_header_size);
+
+if (!SendAll(
+        client_fd,
+        &network_response_header_size,
+        sizeof(network_response_header_size)))
+{
+    return false;
+}
+
+
+// =================================
+// 发送 Response Header
+// =================================
+
+if (!SendAll(
+        client_fd,
+        response_header_data.data(),
+        response_header_data.size()))
+{
+    return false;
+}
+
+
+// =================================
+// 发送业务 Response
+// =================================
+
+if (!response_data.empty())
+{
     if (!SendAll(
             client_fd,
             response_data.data(),
@@ -168,15 +246,21 @@ bool RpcServer::HandleClient(int client_fd)
     {
         return false;
     }
+}
 
-    std::cout
-        << "RPC completed: "
-        << header.service_name()
-        << "."
-        << header.method_name()
-        << std::endl;
+std::cout
+    << "RPC completed: "
+    << header.service_name()
+    << "."
+    << header.method_name()
+    << " [request_id="
+    << header.request_id()
+    << "]"
+    << std::endl;
 
-    return true;
+return true;
+
+
 }
 
 bool RpcServer::Start(uint16_t port)

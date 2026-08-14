@@ -102,6 +102,28 @@ int main(int argc, char* argv[])
             << std::endl;
     }
 
+    else if (operation == "invalid")
+{
+    minirpc::AddRequest request;
+    minirpc::AddResponse response;
+
+    request.set_a(a);
+    request.set_b(b);
+
+    if (!channel.Call(
+            "Calculator",
+            "DoesNotExist",
+            request,
+            response))
+    {
+        std::cerr
+            << "RPC call failed as expected."
+            << std::endl;
+
+        return 1;
+    }
+}
+
     else
     {
         std::cerr

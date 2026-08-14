@@ -16,6 +16,15 @@ void RpcDispatcher::Register(
         std::move(handler);
 }
 
+bool RpcDispatcher::HasMethod(
+    const std::string& service_name,
+    const std::string& method_name) const
+{
+    return handlers_.find(
+        MakeKey(service_name, method_name)
+    ) != handlers_.end();
+}
+
 bool RpcDispatcher::Dispatch(
     const std::string& service_name,
     const std::string& method_name,
