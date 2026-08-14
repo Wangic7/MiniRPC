@@ -8,7 +8,7 @@
 #include <string>
 #include <utility>
 
-#include "proto/rpc_header.pb.h"
+#include "rpc_header.pb.h"
 
 RpcChannel::RpcChannel(
     std::string host,

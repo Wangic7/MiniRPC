@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <utility>
 
-#include "proto/rpc_header.pb.h"
+#include "rpc_header.pb.h"
 
 void RpcServer::RegisterMethod(
     const std::string& service_name,
