@@ -35,3 +35,29 @@ target_link_libraries(
     PRIVATE
     protobuf::libprotobuf
 )
+
+add_executable(
+    rpc_server
+    src/rpc_server.cpp
+    proto/calculator.pb.cc
+    proto/rpc_header.pb.cc
+)
+
+target_link_libraries(
+    rpc_server
+    PRIVATE
+    protobuf::libprotobuf
+)
+
+add_executable(
+    rpc_client
+    src/rpc_client.cpp
+    proto/calculator.pb.cc
+    proto/rpc_header.pb.cc
+)
+
+target_link_libraries(
+    rpc_client
+    PRIVATE
+    protobuf::libprotobuf
+)
