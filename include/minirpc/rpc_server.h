@@ -15,7 +15,8 @@ public:
     using Handler = RpcDispatcher::Handler;
 
     explicit RpcServer(
-    std::size_t worker_count = 4
+    std::size_t worker_count = 4,     //4 个 Worker 100 个最大等待任务
+    std::size_t max_queue_size = 100
     );
 
 
@@ -29,7 +30,7 @@ public:
 
 private:
     bool HandleClient(int client_fd);
-
+    bool RejectOverloadedClient(int client_fd);
     static bool RecvAll(
         int sockfd,
         void* buffer,

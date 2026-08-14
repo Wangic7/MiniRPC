@@ -1,9 +1,14 @@
 #include <minirpc/thread_pool.h>
 
-#include <stdexcept>
 #include <utility>
 
-ThreadPool::ThreadPool(std::size_t thread_count)
+ThreadPool::ThreadPool(
+    std::size_t thread_count,
+    std::size_t max_queue_size)
+    : max_queue_size_(
+          max_queue_size == 0
+              ? 1
+              : max_queue_size)
 {
     if (thread_count == 0)
     {
@@ -44,7 +49,7 @@ ThreadPool::~ThreadPool()
     }
 }
 
-void ThreadPool::Submit(
+bool ThreadPool::Submit(
     std::function<void()> task)
 {
     {
@@ -52,15 +57,20 @@ void ThreadPool::Submit(
 
         if (stopping_)
         {
-            throw std::runtime_error(
-                "Submit on stopped ThreadPool"
-            );
+            return false;
+        }
+
+        if (tasks_.size() >= max_queue_size_)//队列不能无限增长
+        {
+            return false;
         }
 
         tasks_.push(std::move(task));
     }
 
     condition_.notify_one();
+
+    return true;
 }
 
 void ThreadPool::WorkerLoop()

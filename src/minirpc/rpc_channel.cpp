@@ -426,6 +426,10 @@ if (!RecvAll(
 
 uint32_t response_header_size =
     ntohl(network_response_header_size);
+    std::cerr
+    << "[DEBUG] response_header_size = "
+    << response_header_size
+    << std::endl;
 
 
 // =================================
@@ -458,6 +462,17 @@ if (!response_header.ParseFromString(
     std::cerr
         << "Failed to parse response header"
         << std::endl;
+
+    std::cerr
+    << "[DEBUG] request_id = "
+    << response_header.request_id()
+    << ", error_code = "
+    << response_header.error_code()
+    << ", error_message = "
+    << response_header.error_message()
+    << ", payload_size = "
+    << response_header.payload_size()
+    << std::endl;
 
     close(sockfd);
     return false;

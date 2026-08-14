@@ -6,12 +6,16 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <utility>
+#include <sys/time.h>
 
 #include "rpc_header.pb.h"
 
 RpcServer::RpcServer(
-    std::size_t worker_count)
-    : thread_pool_(worker_count)
+    std::size_t worker_count,
+    std::size_t max_queue_size)
+    : thread_pool_(
+          worker_count,
+          max_queue_size)
 {
 }
 
@@ -269,6 +273,167 @@ return true;
 
 }
 
+bool RpcServer::RejectOverloadedClient(
+    int client_fd)
+{
+    // 拒绝路径不能长时间阻塞 accept 线程
+    timeval timeout{};
+
+    timeout.tv_sec = 0;
+    timeout.tv_usec = 200000;  // 200 ms
+
+    setsockopt(
+        client_fd,
+        SOL_SOCKET,
+        SO_RCVTIMEO,
+        &timeout,
+        sizeof(timeout)
+    );
+
+    // =================================
+    // 读取 Request Header 长度
+    // =================================
+
+    uint32_t network_header_size = 0;
+
+    if (!RecvAll(
+            client_fd,
+            &network_header_size,
+            sizeof(network_header_size)))
+    {
+        return false;
+    }
+
+    uint32_t header_size =
+        ntohl(network_header_size);
+
+    // 防止异常客户端要求分配巨大内存
+    constexpr uint32_t kMaxHeaderSize =
+        64 * 1024;
+
+    if (header_size == 0 ||
+        header_size > kMaxHeaderSize)
+    {
+        return false;
+    }
+
+    // =================================
+    // 读取并解析 RpcHeader
+    // =================================
+
+    std::string header_data(
+        header_size,
+        '\0'
+    );
+
+    if (!RecvAll(
+            client_fd,
+            header_data.data(),
+            header_size))
+    {
+        return false;
+    }
+
+    minirpc::RpcHeader header;
+
+    if (!header.ParseFromString(
+            header_data))
+    {
+        return false;
+    }
+
+    // =================================
+    // 把业务参数读掉，但不执行
+    // =================================
+
+    constexpr uint32_t kMaxArgsSize =
+        1024 * 1024;
+
+    if (header.args_size() >
+        kMaxArgsSize)
+    {
+        return false;
+    }
+
+    std::string discarded_args(
+        header.args_size(),
+        '\0'
+    );
+
+    if (!discarded_args.empty())
+    {
+        if (!RecvAll(
+                client_fd,
+                discarded_args.data(),
+                discarded_args.size()))
+        {
+            return false;
+        }
+    }
+
+    // =================================
+    // 构造 SERVER_BUSY Response
+    // =================================
+
+    minirpc::RpcResponseHeader response_header;
+
+    response_header.set_request_id(
+        header.request_id()
+    );
+
+    response_header.set_error_code(
+        minirpc::RPC_SERVER_BUSY
+    );
+
+    response_header.set_error_message(
+        "Server is busy"
+    );
+
+    response_header.set_payload_size(0);
+
+    std::string response_header_data;
+
+    if (!response_header.SerializeToString(
+            &response_header_data))
+    {
+        return false;
+    }
+
+    // =================================
+    // 发送 Response Header 长度
+    // =================================
+
+    uint32_t response_header_size =
+        static_cast<uint32_t>(
+            response_header_data.size()
+        );
+
+    uint32_t network_response_header_size =
+        htonl(response_header_size);
+
+    if (!SendAll(
+            client_fd,
+            &network_response_header_size,
+            sizeof(network_response_header_size)))
+    {
+        return false;
+    }
+
+    // =================================
+    // 发送 Response Header
+    // =================================
+
+    if (!SendAll(
+            client_fd,
+            response_header_data.data(),
+            response_header_data.size()))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 bool RpcServer::Start(uint16_t port)
 {
     int server_fd =
@@ -362,23 +527,42 @@ std::cout
     << "Client connected."
     << std::endl;
 
-thread_pool_.Submit(
-    [this, client_fd]()
-    {
-        if (!HandleClient(client_fd))
+bool submitted =
+    thread_pool_.Submit(
+        [this, client_fd]()
         {
-            std::cerr
-                << "RPC request failed."
+            if (!HandleClient(client_fd))
+            {
+                std::cerr
+                    << "RPC request failed."
+                    << std::endl;
+            }
+
+            close(client_fd);
+
+            std::cout
+                << "Client disconnected."
                 << std::endl;
         }
+    );
 
-        close(client_fd);
+        if (!submitted)
+{
+    std::cerr
+        << "Server overloaded: "
+        << "task queue is full. "
+        << "Rejecting client."
+        << std::endl;
 
-        std::cout
-            << "Client disconnected."
+    if (!RejectOverloadedClient(client_fd))
+    {
+        std::cerr
+            << "Failed to send SERVER_BUSY response."
             << std::endl;
     }
-);//accept 线程不再亲自干业务
+
+    close(client_fd);
+}
     }
 
     close(server_fd);

@@ -11,11 +11,14 @@
 class ThreadPool
 {
 public:
-    explicit ThreadPool(std::size_t thread_count);
+  explicit ThreadPool(
+    std::size_t thread_count,
+    std::size_t max_queue_size = 100
+);
 
-    ~ThreadPool();
+~ThreadPool();
 
-    void Submit(std::function<void()> task);
+bool Submit(std::function<void()> task);
 
 private:
     void WorkerLoop();
@@ -28,6 +31,8 @@ private:
     std::mutex mutex_;
 
     std::condition_variable condition_;
+
+    std::size_t max_queue_size_;
 
     bool stopping_ = false;
 };
