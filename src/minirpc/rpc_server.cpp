@@ -9,6 +9,12 @@
 
 #include "rpc_header.pb.h"
 
+RpcServer::RpcServer(
+    std::size_t worker_count)
+    : thread_pool_(worker_count)
+{
+}
+
 void RpcServer::RegisterMethod(
     const std::string& service_name,
     const std::string& method_name,
@@ -352,19 +358,27 @@ bool RpcServer::Start(uint16_t port)
             continue;
         }
 
-        std::cout << "Client connected."
-                  << std::endl;
+std::cout
+    << "Client connected."
+    << std::endl;
 
+thread_pool_.Submit(
+    [this, client_fd]()
+    {
         if (!HandleClient(client_fd))
         {
-            std::cerr << "RPC request failed."
-                      << std::endl;
+            std::cerr
+                << "RPC request failed."
+                << std::endl;
         }
 
         close(client_fd);
 
-        std::cout << "Client disconnected."
-                  << std::endl;
+        std::cout
+            << "Client disconnected."
+            << std::endl;
+    }
+);//accept 线程不再亲自干业务
     }
 
     close(server_fd);

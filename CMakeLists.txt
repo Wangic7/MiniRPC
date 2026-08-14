@@ -58,6 +58,7 @@ add_library(
     src/minirpc/rpc_server.cpp
     src/minirpc/rpc_dispatcher.cpp
     src/minirpc/rpc_channel.cpp
+    src/minirpc/thread_pool.cpp
 
     ${MINIRPC_PROTO_GENERATED}
 )

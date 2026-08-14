@@ -5,10 +5,18 @@
 
 #include <minirpc/rpc_dispatcher.h>
 
+#include <cstddef>
+#include <minirpc/thread_pool.h>
+
 class RpcServer
 {
 public:
+
     using Handler = RpcDispatcher::Handler;
+
+    explicit RpcServer(
+    std::size_t worker_count = 4
+    );
 
     RpcServer() = default;
 
@@ -37,4 +45,5 @@ private:
 
 private:
     RpcDispatcher dispatcher_;
+    ThreadPool thread_pool_;
 };
