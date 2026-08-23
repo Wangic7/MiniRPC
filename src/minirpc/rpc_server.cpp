@@ -1,3 +1,4 @@
+#include <minirpc/rpc_config.h>
 #include <minirpc/rpc_server.h>
 
 #include <arpa/inet.h>
@@ -123,7 +124,28 @@ bool RpcServer::HandleClient(int client_fd)
     {
         return false;
     }
+    // ===============================
+// RPC协议检查
+// ===============================
 
+if(header.magic() != minirpc::RPC_MAGIC)
+{
+    std::cerr
+        << "Invalid RPC magic"
+        << std::endl;
+
+    return false;
+}
+
+
+if(header.version() != minirpc::RPC_VERSION)
+{
+    std::cerr
+        << "Unsupported RPC version"
+        << std::endl;
+
+    return false;
+}	
     std::string args_data(
         header.args_size(),
         '\0'

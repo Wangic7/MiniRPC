@@ -1,4 +1,5 @@
 #include <minirpc/rpc_channel.h>
+#include <minirpc/rpc_config.h>
 
 #include <atomic>
 
@@ -122,13 +123,22 @@ uint64_t request_id =
 header.set_service_name(service_name);
 header.set_method_name(method_name);
 header.set_request_id(request_id);
+// RPC协议校验信息
+header.set_magic(
+     minirpc::RPC_MAGIC
+);
 
-    header.set_args_size(
+
+header.set_version(
+    minirpc::RPC_VERSION
+);
+
+
+ header.set_args_size(
         static_cast<uint32_t>(
             args_data.size()
         )
     );
-
     std::string header_data;
 
     if (!header.SerializeToString(

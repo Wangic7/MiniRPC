@@ -19,6 +19,12 @@ message RpcHeader {
 
     // 唯一标识一次 RPC 请求
     uint64 request_id = 4;//Protobuf 的字段编号属于线上的协议标识，已经使用过的字段编号尽量不要随便改变。
+        // RPC协议魔数
+    uint32 magic = 5;
+
+
+    // RPC协议版本
+    uint32 version = 6;
 }
 
 // 服务端 -> 客户端
@@ -32,4 +38,11 @@ message RpcResponseHeader {
 
     // 后面真正业务响应数据的长度
     uint32 payload_size = 4;
+        // RPC协议魔数
+    uint32 magic = 5;
+
+
+    // RPC协议版本
+    uint32 version = 6;
+	
 }
