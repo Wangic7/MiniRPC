@@ -90,6 +90,65 @@ bool RpcServer::SendAll(
     return true;
 }
 
+bool RpcServer::SendErrorResponse(
+    int client_fd,
+    uint64_t request_id,
+    minirpc::RpcErrorCode error_code,
+    const std::string& message)
+{
+    minirpc::RpcResponseHeader response_header;
+
+    response_header.set_request_id(
+        request_id
+    );
+
+    response_header.set_error_code(
+        error_code
+    );
+
+    response_header.set_error_message(
+        message
+    );
+
+    response_header.set_payload_size(0);
+
+
+    std::string response_header_data;
+
+
+    if(!response_header.SerializeToString(
+            &response_header_data))
+    {
+        return false;
+    }
+
+
+    uint32_t response_header_size =
+        static_cast<uint32_t>(
+            response_header_data.size()
+        );
+
+
+    uint32_t network_size =
+        htonl(response_header_size);
+
+
+    if(!SendAll(
+            client_fd,
+            &network_size,
+            sizeof(network_size)))
+    {
+        return false;
+    }
+
+
+    return SendAll(
+        client_fd,
+        response_header_data.data(),
+        response_header_data.size()
+    );
+}
+
 bool RpcServer::HandleClient(int client_fd)
 {
     uint32_t network_header_size = 0;
@@ -130,9 +189,12 @@ bool RpcServer::HandleClient(int client_fd)
 
 if(header.magic() != minirpc::RPC_MAGIC)
 {
-    std::cerr
-        << "Invalid RPC magic"
-        << std::endl;
+    SendErrorResponse(
+        client_fd,
+        header.request_id(),
+        minirpc::RPC_BAD_REQUEST,
+        "Invalid RPC magic"
+    );
 
     return false;
 }
@@ -140,9 +202,12 @@ if(header.magic() != minirpc::RPC_MAGIC)
 
 if(header.version() != minirpc::RPC_VERSION)
 {
-    std::cerr
-        << "Unsupported RPC version"
-        << std::endl;
+    SendErrorResponse(
+        client_fd,
+        header.request_id(),
+        minirpc::RPC_BAD_REQUEST,
+        "Unsupported RPC version"
+    );
 
     return false;
 }	
@@ -356,13 +421,20 @@ bool RpcServer::RejectOverloadedClient(
         return false;
     }
 
+    
+
     minirpc::RpcHeader header;
 
-    if (!header.ParseFromString(
-            header_data))
-    {
-        return false;
-    }
+if (!header.ParseFromString(header_data))
+{
+    std::cerr
+        << "RpcHeader Parse failed, size="
+        << header_data.size()
+        << std::endl;
+
+    return false;
+}
+
 
     // =================================
     // 把业务参数读掉，但不执行

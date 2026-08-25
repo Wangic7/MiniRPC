@@ -125,7 +125,7 @@ header.set_method_name(method_name);
 header.set_request_id(request_id);
 // RPC协议校验信息
 header.set_magic(
-     minirpc::RPC_MAGIC
+      minirpc::RPC_MAGIC
 );
 
 

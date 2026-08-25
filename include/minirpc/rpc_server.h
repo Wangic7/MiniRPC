@@ -1,5 +1,5 @@
 #pragma once
-
+#include "rpc_header.pb.h"
 #include <cstdint>
 #include <string>
 
@@ -31,6 +31,12 @@ public:
 private:
     bool HandleClient(int client_fd);
     bool RejectOverloadedClient(int client_fd);
+    bool SendErrorResponse(
+     int client_fd,
+     uint64_t request_id,
+     minirpc::RpcErrorCode error_code,
+     const std::string& message
+); 
     static bool RecvAll(
         int sockfd,
         void* buffer,
