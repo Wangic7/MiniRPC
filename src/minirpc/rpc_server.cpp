@@ -151,6 +151,8 @@ bool RpcServer::SendErrorResponse(
 
 bool RpcServer::HandleClient(int client_fd)
 {
+    while(true)
+    {
     uint32_t network_header_size = 0;
 
     if (!RecvAll(
@@ -389,8 +391,9 @@ std::cout
     << "]"
     << std::endl;
 
-return true;
+    }
 
+    return true;
 
 }
 
@@ -659,12 +662,12 @@ bool submitted =
     thread_pool_.Submit(
         [this, client_fd]()
         {
-            if (!HandleClient(client_fd))
+          if (!HandleClient(client_fd))
             {
-                std::cerr
-                    << "RPC request failed."
-                    << std::endl;
-            }
+              std::cout
+              << "Client closed connection."
+              << std::endl;
+           }    
 
             close(client_fd);
 

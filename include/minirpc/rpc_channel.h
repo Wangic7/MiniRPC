@@ -14,6 +14,9 @@ public:
         int timeout_ms = 3000
     );
 
+~RpcChannel();
+
+
     bool Call(
         const std::string& service_name,
         const std::string& method_name,
@@ -22,6 +25,9 @@ public:
     );
 
 private:
+
+    bool Connect();
+
     static bool SendAll(
         int sockfd,
         const void* buffer,
@@ -38,4 +44,7 @@ private:
     std::string host_;
     uint16_t port_;
     int timeout_ms_;
+    // 长连接socket
+    int sockfd_;
+
 };

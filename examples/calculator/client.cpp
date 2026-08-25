@@ -4,162 +4,104 @@
 #include "calculator.pb.h"
 #include <minirpc/rpc_channel.h>
 
-int main(int argc, char* argv[])
+int main()
 {
-    if (argc != 4)
-    {
-        std::cerr
-            << "Usage: ./rpc_client <add|subtract> <a> <b>"
-            << std::endl;
-
-        return 1;
-    }
-
-    std::string operation = argv[1];
-
-    int a = std::stoi(argv[2]);
-    int b = std::stoi(argv[3]);
-
-    // 创建 RPC 通道
     RpcChannel channel(
         "127.0.0.1",
         9000
     );
 
-    // =========================
-    // Add
-    // =========================
-    if (operation == "add")
+
+    // 第一次RPC
     {
         minirpc::AddRequest request;
         minirpc::AddResponse response;
 
-        request.set_a(a);
-        request.set_b(b);
+        request.set_a(10);
+        request.set_b(20);
 
-        if (!channel.Call(
+        if(!channel.Call(
                 "Calculator",
                 "Add",
                 request,
                 response))
         {
             std::cerr
-                << "RPC call failed: Calculator.Add"
+                << "Add failed"
                 << std::endl;
 
             return 1;
         }
 
-        std::cout
-            << "===== RPC Response ====="
-            << std::endl;
 
         std::cout
-            << "Calculator.Add("
-            << a
-            << ", "
-            << b
-            << ") = "
+            << "Add result = "
             << response.result()
             << std::endl;
     }
 
-    // =========================
-    // Subtract
-    // =========================
-    else if (operation == "subtract")
+
+
+    // 第二次RPC
     {
         minirpc::SubtractRequest request;
         minirpc::SubtractResponse response;
 
-        request.set_a(a);
-        request.set_b(b);
+        request.set_a(20);
+        request.set_b(5);
 
-        if (!channel.Call(
+
+        if(!channel.Call(
                 "Calculator",
                 "Subtract",
                 request,
                 response))
         {
             std::cerr
-                << "RPC call failed: Calculator.Subtract"
+                << "Subtract failed"
                 << std::endl;
 
             return 1;
         }
 
-        std::cout
-            << "===== RPC Response ====="
-            << std::endl;
 
         std::cout
-            << "Calculator.Subtract("
-            << a
-            << ", "
-            << b
-            << ") = "
+            << "Subtract result = "
             << response.result()
             << std::endl;
     }
 
-    else if (operation == "invalid")
-{
-    minirpc::AddRequest request;
-    minirpc::AddResponse response;
 
-    request.set_a(a);
-    request.set_b(b);
 
-    if (!channel.Call(
-            "Calculator",
-            "DoesNotExist",
-            request,
-            response))
+    // 第三次RPC
     {
-        std::cerr
-            << "RPC call failed as expected."
+        minirpc::AddRequest request;
+        minirpc::AddResponse response;
+
+        request.set_a(100);
+        request.set_b(200);
+
+
+        if(!channel.Call(
+                "Calculator",
+                "Add",
+                request,
+                response))
+        {
+            std::cerr
+                << "Add2 failed"
+                << std::endl;
+
+            return 1;
+        }
+
+
+        std::cout
+            << "Add2 result = "
+            << response.result()
             << std::endl;
-
-        return 1;
-    }
-}
-
-    else if (operation == "slow")
-{
-    minirpc::AddRequest request;
-    minirpc::AddResponse response;
-
-    request.set_a(a);
-    request.set_b(b);
-
-    if (!channel.Call(
-            "Calculator",
-            "SlowAdd",
-            request,
-            response))
-    {
-        std::cerr
-            << "Slow RPC failed or timed out."
-            << std::endl;
-
-        return 1;
     }
 
-    std::cout
-        << "SlowAdd result = "
-        << response.result()
-        << std::endl;
-}
-
-    else
-    {
-        std::cerr
-            << "Unknown operation: "
-            << operation
-            << std::endl;
-
-        return 1;
-    }
 
     return 0;
 }
