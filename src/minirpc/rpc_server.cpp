@@ -163,6 +163,21 @@ bool RpcServer::HandleClient(int client_fd)
 
     uint32_t header_size =
         ntohl(network_header_size);
+  // ===============================
+  // Header长度保护
+  // ===============================
+   if(header_size == 0 ||
+   header_size > minirpc::MAX_HEADER_SIZE)
+{
+    SendErrorResponse(
+        client_fd,
+        0,
+        minirpc::RPC_BAD_REQUEST,
+        "Invalid header size"
+    );
+
+    return false;
+}
 
     std::string header_data(
         header_size,
@@ -211,10 +226,29 @@ if(header.version() != minirpc::RPC_VERSION)
 
     return false;
 }	
+
+
+// ===============================
+// Payload长度保护
+// ===============================
+
+if(header.args_size() > minirpc::MAX_PAYLOAD_SIZE)
+{
+    SendErrorResponse(
+        client_fd,
+        header.request_id(),
+        minirpc::RPC_BAD_REQUEST,
+        "Payload too large"
+    );
+
+    return false;
+}
     std::string args_data(
         header.args_size(),
         '\0'
     );
+
+
 
     if (!RecvAll(
             client_fd,
