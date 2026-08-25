@@ -1,161 +1,298 @@
-#include <arpa/inet.h>
-#include <cstring>
 #include <iostream>
 #include <string>
 
-#include "proto/calculator.pb.h"
-#include "rpc_header.pb.h"
+#include <minirpc/rpc_codec.h>
+#include <minirpc/rpc_config.h>
+
+#include "calculator.pb.h"
+
 
 int main()
 {
     // ============================
-    // 客户端：构造 RPC 请求
+    // Client:
+    // 构造 RPC 请求
     // ============================
 
-    // 1. 构造业务参数
     minirpc::AddRequest request;
+
     request.set_a(10);
     request.set_b(20);
 
+
     std::string args_data;
 
-    if (!request.SerializeToString(&args_data))
+    if(!request.SerializeToString(
+            &args_data))
     {
-        std::cerr << "Serialize AddRequest failed!" << std::endl;
+        std::cerr
+            << "Serialize request failed"
+            << std::endl;
+
         return 1;
     }
 
-    // 2. 构造 RPC Header
+
+
     minirpc::RpcHeader header;
 
-    header.set_service_name("Calculator");
-    header.set_method_name("Add");
-    header.set_args_size(
-        static_cast<uint32_t>(args_data.size())
+    header.set_service_name(
+        "Calculator"
     );
 
-    std::string header_data;
+    header.set_method_name(
+        "Add"
+    );
 
-    if (!header.SerializeToString(&header_data))
-    {
-        std::cerr << "Serialize RpcHeader failed!" << std::endl;
-        return 1;
-    }
+    header.set_request_id(
+        1
+    );
 
-    // 3. Header 长度
-    uint32_t header_size =
-        static_cast<uint32_t>(header_data.size());
+    header.set_magic(
+        minirpc::RPC_MAGIC
+    );
 
-    // 转换为网络字节序
-    uint32_t network_header_size = htonl(header_size);
+    header.set_version(
+        minirpc::RPC_VERSION
+    );
 
-    // 4. 拼接完整 RPC 数据包
+    header.set_args_size(
+        static_cast<uint32_t>(
+            args_data.size()
+        )
+    );
+
+
+
     std::string packet;
 
-    packet.append(
-        reinterpret_cast<const char*>(&network_header_size),
-        sizeof(network_header_size)
-    );
 
-    packet.append(header_data);
-    packet.append(args_data);
+    if(!RpcCodec::EncodeRequest(
+            header,
+            args_data,
+            packet))
+    {
+        std::cerr
+            << "Encode RPC request failed"
+            << std::endl;
 
-    std::cout << "===== Client =====" << std::endl;
-    std::cout << "Service: Calculator" << std::endl;
-    std::cout << "Method : Add" << std::endl;
-    std::cout << "Args   : 10, 20" << std::endl;
-    std::cout << "Packet size: "
-              << packet.size()
-              << " bytes"
-              << std::endl;
+        return 1;
+    }
+
+
+
+    std::cout
+        << "===== Encode Request ====="
+        << std::endl;
+
+    std::cout
+        << "Packet size: "
+        << packet.size()
+        << " bytes"
+        << std::endl;
+
 
 
     // ============================
-    // 服务器：解析 RPC 请求
+    // Server:
+    // 解码 RPC 请求
     // ============================
 
-    if (packet.size() < sizeof(uint32_t))
+
+    minirpc::RpcHeader decoded_header;
+
+    std::string decoded_payload;
+
+
+    if(!RpcCodec::DecodeRequest(
+            packet,
+            decoded_header,
+            decoded_payload))
     {
-        std::cerr << "Invalid packet!" << std::endl;
+        std::cerr
+            << "Decode RPC request failed"
+            << std::endl;
+
         return 1;
     }
 
-    // 5. 读取前 4 字节：Header 长度
-    uint32_t received_network_header_size = 0;
 
-    std::memcpy(
-        &received_network_header_size,
-        packet.data(),
-        sizeof(uint32_t)
+
+    minirpc::AddRequest decoded_request;
+
+
+    if(!decoded_request.ParseFromString(
+            decoded_payload))
+    {
+        std::cerr
+            << "Parse AddRequest failed"
+            << std::endl;
+
+        return 1;
+    }
+
+
+
+    std::cout
+        << std::endl;
+
+    std::cout
+        << "===== Decode Request ====="
+        << std::endl;
+
+
+    std::cout
+        << "Service: "
+        << decoded_header.service_name()
+        << std::endl;
+
+
+    std::cout
+        << "Method : "
+        << decoded_header.method_name()
+        << std::endl;
+
+
+    std::cout
+        << "Request ID: "
+        << decoded_header.request_id()
+        << std::endl;
+
+
+    std::cout
+        << "Magic: "
+        << decoded_header.magic()
+        << std::endl;
+
+
+    std::cout
+        << "Version: "
+        << decoded_header.version()
+        << std::endl;
+
+
+    std::cout
+        << "a = "
+        << decoded_request.a()
+        << std::endl;
+
+
+    std::cout
+        << "b = "
+        << decoded_request.b()
+        << std::endl;
+
+
+    std::cout
+        << "Result = "
+        << decoded_request.a()
+           +
+           decoded_request.b()
+        << std::endl;
+
+
+
+    // ============================
+    // Test Response Codec
+    // ============================
+
+
+    minirpc::RpcResponseHeader response_header;
+
+
+    response_header.set_request_id(
+        1
     );
 
-    uint32_t received_header_size =
-        ntohl(received_network_header_size);
 
-    // 防止数据不完整
-    if (packet.size()
-        < sizeof(uint32_t) + received_header_size)
+    response_header.set_error_code(
+        minirpc::RPC_OK
+    );
+
+    response_header.set_magic(
+    minirpc::RPC_MAGIC
+);
+
+response_header.set_version(
+    minirpc::RPC_VERSION
+);
+
+
+    response_header.set_error_message(
+        ""
+    );
+
+
+    std::string response_payload =
+        "success";
+
+
+
+    std::string response_packet;
+
+
+
+    if(!RpcCodec::EncodeResponse(
+            response_header,
+            response_payload,
+            response_packet))
     {
-        std::cerr << "Incomplete RPC header!" << std::endl;
+        std::cerr
+            << "Encode response failed"
+            << std::endl;
+
         return 1;
     }
 
-    // 6. 解析 RpcHeader
-    minirpc::RpcHeader received_header;
 
-    if (!received_header.ParseFromArray(
-            packet.data() + sizeof(uint32_t),
-            static_cast<int>(received_header_size)))
+
+    minirpc::RpcResponseHeader decoded_response_header;
+
+    std::string decoded_response_payload;
+
+
+
+    if(!RpcCodec::DecodeResponse(
+            response_packet,
+            decoded_response_header,
+            decoded_response_payload))
     {
-        std::cerr << "Parse RpcHeader failed!" << std::endl;
+        std::cerr
+            << "Decode response failed"
+            << std::endl;
+
         return 1;
     }
 
-    // 7. 找到参数开始位置
-    size_t args_offset =
-        sizeof(uint32_t) + received_header_size;
 
-    if (packet.size()
-        < args_offset + received_header.args_size())
-    {
-        std::cerr << "Incomplete RPC arguments!" << std::endl;
-        return 1;
-    }
 
-    // 8. 解析 AddRequest
-    minirpc::AddRequest received_request;
+    std::cout
+        << std::endl;
 
-    if (!received_request.ParseFromArray(
-            packet.data() + args_offset,
-            static_cast<int>(received_header.args_size())))
-    {
-        std::cerr << "Parse AddRequest failed!" << std::endl;
-        return 1;
-    }
 
-    std::cout << std::endl;
-    std::cout << "===== Server =====" << std::endl;
+    std::cout
+        << "===== Decode Response ====="
+        << std::endl;
 
-    std::cout << "Service: "
-              << received_header.service_name()
-              << std::endl;
 
-    std::cout << "Method : "
-              << received_header.method_name()
-              << std::endl;
+    std::cout
+        << "Request ID: "
+        << decoded_response_header.request_id()
+        << std::endl;
 
-    std::cout << "a = "
-              << received_request.a()
-              << std::endl;
 
-    std::cout << "b = "
-              << received_request.b()
-              << std::endl;
+    std::cout
+        << "Error Code: "
+        << decoded_response_header.error_code()
+        << std::endl;
 
-    std::cout << "Result = "
-              << received_request.a()
-                   + received_request.b()
-              << std::endl;
+
+    std::cout
+        << "Payload: "
+        << decoded_response_payload
+        << std::endl;
+
+
 
     return 0;
 }

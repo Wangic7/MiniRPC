@@ -59,7 +59,7 @@ add_library(
     src/minirpc/rpc_dispatcher.cpp
     src/minirpc/rpc_channel.cpp
     src/minirpc/thread_pool.cpp
-
+    src/minirpc/rpc_codec.cpp
     ${MINIRPC_PROTO_GENERATED}
 )
 
@@ -127,6 +127,15 @@ add_executable(
 
     examples/calculator/server.cpp
     examples/calculator/calculator_service.cpp
+)
+
+add_executable(rpc_codec_demo
+    src/rpc_codec_demo.cpp
+)
+
+target_link_libraries(rpc_codec_demo
+    minirpc
+    calculator_proto
 )
 
 target_include_directories(
