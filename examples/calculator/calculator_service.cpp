@@ -69,13 +69,7 @@ bool CalculatorService::Add(
         request.a() + request.b()
     );
 
-    std::cout
-        << "Executing Calculator.Add("
-        << request.a()
-        << ", "
-        << request.b()
-        << ")"
-        << std::endl;
+
 
     return response.SerializeToString(
         &response_data

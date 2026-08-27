@@ -440,15 +440,7 @@ if (!SendAll(
     return false;
 }
 
-std::cout
-    << "RPC completed: "
-    << header.service_name()
-    << "."
-    << header.method_name()
-    << " [request_id="
-    << header.request_id()
-    << "]"
-    << std::endl;
+
 
     }
 
