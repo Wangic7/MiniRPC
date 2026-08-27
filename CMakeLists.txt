@@ -178,3 +178,13 @@ target_link_libraries(
     minirpc
     calculator_proto
 )
+
+
+add_executable(rpc_benchmark
+    benchmarks/rpc_benchmark.cpp
+)
+
+target_link_libraries(rpc_benchmark
+    minirpc
+    calculator_proto
+)

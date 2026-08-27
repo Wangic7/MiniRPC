@@ -1,11 +1,30 @@
 #include <iostream>
+#include <string>
 
 #include "calculator_service.h"
 #include <minirpc/rpc_server.h>
 
-int main()
+int main(int argc, char* argv[])
 {
-    RpcServer server;
+    std::size_t worker_count = 4;
+
+    if (argc >= 2)
+    {
+        worker_count =
+            static_cast<std::size_t>(
+                std::stoul(argv[1])
+            );
+    }
+
+    std::cout
+        << "Worker count: "
+        << worker_count
+        << std::endl;
+
+    RpcServer server(
+        worker_count,
+        100
+    );
 
     CalculatorService calculator_service;
 
