@@ -561,36 +561,7 @@ if(response_header.payload_size()
 
 
 
-    // 10. 接收payload
-
-    uint32_t payload_size =
-        response_header.payload_size();
-
-
-    std::string response_data(
-        payload_size,
-        '\0'
-    );
-
-
-    if(payload_size > 0)
-    {
-        if(!RecvAll(
-                sockfd_,
-                response_data.data(),
-                payload_size))
-        {
-            std::cerr
-                << "Failed to receive response payload"
-                << std::endl;
-
-
-            close(sockfd_);
-            sockfd_ = -1;
-
-            return false;
-        }
-    }
+    
 
 
 
