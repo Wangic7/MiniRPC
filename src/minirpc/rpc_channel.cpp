@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <poll.h>
 
+#include <minirpc/rpc_codec.h>
 
 RpcChannel::RpcChannel(
     std::string host,
@@ -286,46 +287,19 @@ bool RpcChannel::Call(
     );
 
 
-    std::string header_data;
+std::string packet;
 
+if(!RpcCodec::EncodeRequest(
+        header,
+        args_data,
+        packet))
+{
+    std::cerr
+        << "Failed to encode RPC request"
+        << std::endl;
 
-    if(!header.SerializeToString(
-            &header_data))
-    {
-        std::cerr
-            << "Failed to serialize RPC header"
-            << std::endl;
-
-        return false;
-    }
-
-
-
-    // 4. 构造请求数据包
-
-    uint32_t header_size =
-        static_cast<uint32_t>(
-            header_data.size()
-        );
-
-
-    uint32_t network_header_size =
-        htonl(header_size);
-
-
-    std::string packet;
-
-
-    packet.append(
-        reinterpret_cast<const char*>(
-            &network_header_size),
-        sizeof(network_header_size)
-    );
-
-
-    packet.append(header_data);
-
-    packet.append(args_data);
+    return false;
+}
 
 
 
@@ -349,79 +323,208 @@ bool RpcChannel::Call(
 
 
 
-    // 6. 接收 Response Header 长度
+// =================================
+// 6. 接收 Response Header 长度
+// =================================
 
-    uint32_t network_response_header_size = 0;
+uint32_t network_response_header_size = 0;
+
+if(!RecvAll(
+        sockfd_,
+        &network_response_header_size,
+        sizeof(network_response_header_size)))
+{
+    std::cerr
+        << "RPC receive failed or timed out after "
+        << timeout_ms_
+        << " ms"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
 
 
+uint32_t response_header_size =
+    ntohl(network_response_header_size);
+
+
+// Header长度保护
+if(response_header_size == 0 ||
+   response_header_size > minirpc::MAX_HEADER_SIZE)
+{
+    std::cerr
+        << "Invalid RPC response header size"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
+
+
+
+// =================================
+// 7. 接收 Response Header
+// =================================
+
+std::string response_header_data(
+    response_header_size,
+    '\0'
+);
+
+
+if(!RecvAll(
+        sockfd_,
+        response_header_data.data(),
+        response_header_size))
+{
+    std::cerr
+        << "Failed to receive response header"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
+
+
+
+// 先解析一次Header，目的是获得payload_size
+minirpc::RpcResponseHeader framing_header;
+
+
+if(!framing_header.ParseFromString(
+        response_header_data))
+{
+    std::cerr
+        << "Failed to parse response header"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
+
+
+
+// Payload长度保护
+if(framing_header.payload_size()
+    > minirpc::MAX_PAYLOAD_SIZE)
+{
+    std::cerr
+        << "RPC response payload too large"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
+
+
+
+// =================================
+// 8. 接收 Response Payload
+// =================================
+
+uint32_t payload_size =
+    framing_header.payload_size();
+
+
+std::string response_payload(
+    payload_size,
+    '\0'
+);
+
+
+if(payload_size > 0)
+{
     if(!RecvAll(
             sockfd_,
-            &network_response_header_size,
-            sizeof(network_response_header_size)))
+            response_payload.data(),
+            payload_size))
     {
         std::cerr
-            << "RPC receive failed or timed out after "
-            << timeout_ms_
-            << " ms"
+            << "Failed to receive response payload"
             << std::endl;
-
 
         close(sockfd_);
         sockfd_ = -1;
 
         return false;
     }
-
-
-    uint32_t response_header_size =
-        ntohl(
-            network_response_header_size
-        );
+}
 
 
 
+// =================================
+// 9. 重新组成完整Response Packet
+// =================================
+
+std::string response_packet;
+
+
+response_packet.append(
+    reinterpret_cast<const char*>(
+        &network_response_header_size),
+    sizeof(network_response_header_size)
+);
+
+
+response_packet.append(
+    response_header_data
+);
+
+
+response_packet.append(
+    response_payload
+);
 
 
 
-    // 7. 接收 Response Header
+// =================================
+// 10. 使用 RpcCodec 解码
+// =================================
 
-    std::string response_header_data(
-        response_header_size,
-        '\0'
-    );
+minirpc::RpcResponseHeader response_header;
 
-
-    if(!RecvAll(
-            sockfd_,
-            response_header_data.data(),
-            response_header_size))
-    {
-        std::cerr
-            << "Failed to receive response header"
-            << std::endl;
+std::string response_data;
 
 
-        close(sockfd_);
-        sockfd_ = -1;
+if(!RpcCodec::DecodeResponse(
+        response_packet,
+        response_header,
+        response_data))
+{
+    std::cerr
+        << "Failed to decode RPC response"
+        << std::endl;
 
-        return false;
-    }
+    close(sockfd_);
+    sockfd_ = -1;
 
-
-
-    minirpc::RpcResponseHeader response_header;
-
-
-    if(!response_header.ParseFromString(
-            response_header_data))
-    {
-        std::cerr
-            << "Failed to parse response header"
-            << std::endl;
+    return false;
+}
 
 
-        return false;
-    }
+if(response_header.payload_size()
+    != response_data.size())
+{
+    std::cerr
+        << "RPC response payload size mismatch"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    return false;
+}
 
 
 
