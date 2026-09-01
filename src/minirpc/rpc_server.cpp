@@ -300,16 +300,6 @@ bool RpcServer::HandleClientEvent(
         return false;
     }
 
-        if (events & (EPOLLHUP | EPOLLERR))
-{
-    epoller_.Remove(client_fd);
-
-    connections_.erase(client_fd);
-
-    close(client_fd);
-
-    return false;
-}
 
 
     return HandleClient(connection);
@@ -320,6 +310,8 @@ bool RpcServer::ProcessRequest(
     const std::string& request_packet
 )
 {
+
+
     minirpc::RpcHeader header;
 
     std::string args_data;
@@ -330,18 +322,145 @@ bool RpcServer::ProcessRequest(
             header,
             args_data))
     {
+        SendErrorResponse(
+            client_fd,
+            0,
+            minirpc::RPC_BAD_REQUEST,
+            "Failed to decode RPC request"
+        );
+
         return false;
     }
 
 
-    return true;
+    if (header.args_size()
+        != args_data.size())
+    {
+        SendErrorResponse(
+            client_fd,
+            header.request_id(),
+            minirpc::RPC_BAD_REQUEST,
+            "RPC payload size mismatch"
+        );
+
+        return false;
+    }
+
+
+    if (header.magic()
+        != minirpc::RPC_MAGIC)
+    {
+        SendErrorResponse(
+            client_fd,
+            header.request_id(),
+            minirpc::RPC_BAD_REQUEST,
+            "Invalid RPC magic"
+        );
+
+        return false;
+    }
+
+
+    if (header.version()
+        != minirpc::RPC_VERSION)
+    {
+        SendErrorResponse(
+            client_fd,
+            header.request_id(),
+            minirpc::RPC_BAD_REQUEST,
+            "Unsupported RPC version"
+        );
+
+        return false;
+    }
+
+
+    std::string response_data;
+
+    minirpc::RpcErrorCode error_code =
+        minirpc::RPC_OK;
+
+    std::string error_message;
+
+
+    if (!dispatcher_.HasMethod(
+            header.service_name(),
+            header.method_name()))
+    {
+        error_code =
+            minirpc::RPC_METHOD_NOT_FOUND;
+
+        error_message =
+            "RPC method not found";
+    }
+    else if (!dispatcher_.Dispatch(
+                header.service_name(),
+                header.method_name(),
+                args_data,
+                response_data))
+    {
+        error_code =
+            minirpc::RPC_BAD_REQUEST;
+
+        error_message =
+            "RPC request execution failed";
+    }
+
+
+    minirpc::RpcResponseHeader response_header;
+
+
+    response_header.set_request_id(
+        header.request_id()
+    );
+
+    response_header.set_error_code(
+        error_code
+    );
+
+    response_header.set_error_message(
+        error_message
+    );
+
+    response_header.set_payload_size(
+        static_cast<uint32_t>(
+            response_data.size()
+        )
+    );
+
+    response_header.set_magic(
+        minirpc::RPC_MAGIC
+    );
+
+    response_header.set_version(
+        minirpc::RPC_VERSION
+    );
+
+
+    std::string response_packet;
+
+
+    if (!RpcCodec::EncodeResponse(
+            response_header,
+            response_data,
+            response_packet))
+    {
+        return false;
+    }
+
+
+    return SendAll(
+        client_fd,
+        response_packet.data(),
+        response_packet.size()
+    );
 }
 
 bool RpcServer::HandleClient(
     RpcConnection& connection)
 {
 
-    
+
 
     int client_fd =
         connection.Fd();
@@ -425,170 +544,12 @@ if (n == 0)
         }
 
 
-            // =================================
-            // 4. RpcCodec 解码
-            // =================================
-
-            minirpc::RpcHeader header;
-
-            std::string args_data;
-
-
-    if (!RpcCodec::DecodeRequest(
-            request_packet,
-            header,
-            args_data))
-    {
-        SendErrorResponse(
-            client_fd,
-            0,
-            minirpc::RPC_BAD_REQUEST,
-            "Failed to decode RPC request"
-        );
-
-        return false;
-    }
-
-
-            if (header.args_size()
-                != args_data.size())
-            {
-                SendErrorResponse(
-                    client_fd,
-                    header.request_id(),
-                    minirpc::RPC_BAD_REQUEST,
-                    "RPC payload size mismatch"
-                );
-
-                return false;
-            }
-
-
-            // =================================
-            // 5. RPC 协议检查
-            // =================================
-
-            if (header.magic()
-                != minirpc::RPC_MAGIC)
-            {
-                SendErrorResponse(
-                    client_fd,
-                    header.request_id(),
-                    minirpc::RPC_BAD_REQUEST,
-                    "Invalid RPC magic"
-                );
-
-                return false;
-            }
-
-
-            if (header.version()
-                != minirpc::RPC_VERSION)
-            {
-                SendErrorResponse(
-                    client_fd,
-                    header.request_id(),
-                    minirpc::RPC_BAD_REQUEST,
-                    "Unsupported RPC version"
-                );
-
-                return false;
-            }
-
-
-            // =================================
-            // 6. Dispatcher
-            // =================================
-
-            std::string response_data;
-
-            minirpc::RpcErrorCode error_code =
-                minirpc::RPC_OK;
-
-            std::string error_message;
-
-
-            if (!dispatcher_.HasMethod(
-                    header.service_name(),
-                    header.method_name()))
-            {
-                error_code =
-                    minirpc::RPC_METHOD_NOT_FOUND;
-
-                error_message =
-                    "RPC method not found";
-
-                response_data.clear();
-            }
-            else if (!dispatcher_.Dispatch(
-                        header.service_name(),
-                        header.method_name(),
-                        args_data,
-                        response_data))
-            {
-                error_code =
-                    minirpc::RPC_BAD_REQUEST;
-
-                error_message =
-                    "RPC request execution failed";
-
-                response_data.clear();
-            }
-
-
-            // =================================
-            // 7. 构造 Response
-            // =================================
-
-            minirpc::RpcResponseHeader response_header;
-
-
-            response_header.set_request_id(
-                header.request_id()
-            );
-
-            response_header.set_error_code(
-                error_code
-            );
-
-            response_header.set_error_message(
-                error_message
-            );
-
-            response_header.set_payload_size(
-                static_cast<uint32_t>(
-                    response_data.size()
-                )
-            );
-
-            response_header.set_magic(
-                minirpc::RPC_MAGIC
-            );
-
-            response_header.set_version(
-                minirpc::RPC_VERSION
-            );
-
-
-            std::string response_packet;
-
-
-            if (!RpcCodec::EncodeResponse(
-                    response_header,
-                    response_data,
-                    response_packet))
-            {
-                return false;
-            }
-
-
-            if (!SendAll(
-                    client_fd,
-                    response_packet.data(),
-                    response_packet.size()))
-            {
-                return false;
-            }
+if (!ProcessRequest(
+        client_fd,
+        request_packet))
+{
+    return false;
+}
     }
 }
 
@@ -653,7 +614,7 @@ bool RpcServer::RejectOverloadedClient(
         return false;
     }
 
-    
+
 
     minirpc::RpcHeader header;
 
