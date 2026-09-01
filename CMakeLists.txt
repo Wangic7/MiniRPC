@@ -62,6 +62,7 @@ add_library(
     src/minirpc/rpc_codec.cpp
     src/minirpc/rpc_buffer.cpp
     src/minirpc/rpc_connection.cpp
+    src/minirpc/epoller.cpp
     ${MINIRPC_PROTO_GENERATED}
 )
 
@@ -199,5 +200,15 @@ add_executable(
 
 target_link_libraries(
     rpc_buffer_test
+    minirpc
+)
+
+add_executable(
+    epoller_test
+    tests/epoller_test.cpp
+)
+
+target_link_libraries(
+    epoller_test
     minirpc
 )
