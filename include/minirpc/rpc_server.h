@@ -50,7 +50,8 @@ FrameStatus TryExtractRequestPacket(
 
     bool HandleClient(RpcConnection& connection);
     bool HandleClientEvent(
-    int client_fd
+    int client_fd,
+    uint32_t events
 );
 
 bool ProcessRequest(

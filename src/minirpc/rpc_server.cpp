@@ -268,7 +268,8 @@ RpcServer::TryExtractRequestPacket(
 }
 
 bool RpcServer::HandleClientEvent(
-    int client_fd)
+    int client_fd,
+    uint32_t events)
 {
     auto it =
         connections_.find(
@@ -283,6 +284,32 @@ bool RpcServer::HandleClientEvent(
 
     RpcConnection& connection =
         *(it->second);
+
+            if (events & (EPOLLHUP | EPOLLERR))
+    {
+        epoller_.Remove(
+            client_fd
+        );
+
+        connections_.erase(
+            client_fd
+        );
+
+        close(client_fd);
+
+        return false;
+    }
+
+        if (events & (EPOLLHUP | EPOLLERR))
+{
+    epoller_.Remove(client_fd);
+
+    connections_.erase(client_fd);
+
+    close(client_fd);
+
+    return false;
+}
 
 
     return HandleClient(connection);
@@ -840,7 +867,8 @@ bool RpcServer::Start(uint16_t port)
 if (event.data.fd != server_fd)
 {
     HandleClientEvent(
-        event.data.fd
+        event.data.fd,
+         event.events
     );
 
     continue;
