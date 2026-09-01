@@ -18,6 +18,8 @@
 
 #include <minirpc/rpc_connection.h>
 
+#include <minirpc/epoller.h>
+
 RpcServer::RpcServer(
     std::size_t worker_count,
     std::size_t max_queue_size)
@@ -708,76 +710,134 @@ bool RpcServer::Start(uint16_t port)
         << "..."
         << std::endl;
 
-    while (true)
-    {
-        sockaddr_in client_addr{};
-        socklen_t client_len =
-            sizeof(client_addr);
+     Epoller epoller;
 
-        std::cout
-            << "\nWaiting for client..."
-            << std::endl;
-
-        int client_fd = accept(
+    if (!epoller.Add(
             server_fd,
-            reinterpret_cast<sockaddr*>(
-                &client_addr),
-            &client_len
-        );
-
-        if (client_fd < 0)
-        {
-            std::cerr << "accept() failed"
-                      << std::endl;
-
-            continue;
-        }
-
-std::cout
-    << "Client connected."
-    << std::endl;
-
-bool submitted =
-    thread_pool_.Submit(
-        [this, client_fd]()
-        {
-            RpcConnection connection(
-                client_fd
-            );
-
-            if (!HandleClient(connection))
-            {
-                std::cout
-                    << "Client closed connection."
-                    << std::endl;
-            }
-
-            std::cout
-                << "Client disconnected."
-                << std::endl;
-        }
-    );
-
-        if (!submitted)
-{
-    std::cerr
-        << "Server overloaded: "
-        << "task queue is full. "
-        << "Rejecting client."
-        << std::endl;
-
-    if (!RejectOverloadedClient(client_fd))
+            EPOLLIN))
     {
         std::cerr
-            << "Failed to send SERVER_BUSY response."
+            << "Failed to add server socket to epoll"
             << std::endl;
+
+        close(server_fd);
+
+        return false;
     }
 
-    close(client_fd);
-}
+
+    while (true)
+    {
+        int ready =
+            epoller.Wait(-1);
+
+        if (ready < 0)
+        {
+            std::cerr
+                << "epoll_wait() failed"
+                << std::endl;
+
+            break;
+        }
+
+
+        for (int i = 0;
+             i < ready;
+             ++i)
+        {
+            const epoll_event& event =
+                epoller.Event(
+                    static_cast<std::size_t>(i)
+                );
+
+
+            if (event.data.fd != server_fd)
+            {
+                continue;
+            }
+
+
+            if (!(event.events & EPOLLIN))
+            {
+                continue;
+            }
+
+
+            sockaddr_in client_addr{};
+
+            socklen_t client_len =
+                sizeof(client_addr);
+
+
+            int client_fd =
+                accept(
+                    server_fd,
+                    reinterpret_cast<sockaddr*>(
+                        &client_addr),
+                    &client_len
+                );
+
+
+            if (client_fd < 0)
+            {
+                std::cerr
+                    << "accept() failed"
+                    << std::endl;
+
+                continue;
+            }
+
+
+            bool submitted =
+                thread_pool_.Submit(
+                    [this, client_fd]()
+                    {
+                        RpcConnection connection(
+                            client_fd
+                        );
+
+
+                        if (!HandleClient(
+                                connection))
+                        {
+                            std::cout
+                                << "Client closed connection."
+                                << std::endl;
+                        }
+
+
+                        std::cout
+                            << "Client disconnected."
+                            << std::endl;
+                    }
+                );
+
+
+            if (!submitted)
+            {
+                std::cerr
+                    << "Server overloaded: "
+                    << "task queue is full. "
+                    << "Rejecting client."
+                    << std::endl;
+
+
+                if (!RejectOverloadedClient(
+                        client_fd))
+                {
+                    std::cerr
+                        << "Failed to send SERVER_BUSY response."
+                        << std::endl;
+                }
+
+
+                close(client_fd);
+            }
+        }
     }
+
 
     close(server_fd);
 
-    return true;
+    return false;
 }
