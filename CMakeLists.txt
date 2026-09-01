@@ -212,3 +212,13 @@ target_link_libraries(
     epoller_test
     minirpc
 )
+
+add_executable(
+    rpc_connection_test
+    tests/rpc_connection_test.cpp
+)
+
+target_link_libraries(
+    rpc_connection_test
+    minirpc
+)

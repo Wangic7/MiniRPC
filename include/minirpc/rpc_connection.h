@@ -5,6 +5,14 @@
 #include <minirpc/rpc_buffer.h>
 
 
+enum class RpcReadStatus
+{
+    Data,
+    WouldBlock,
+    PeerClosed,
+    Error
+};
+
 class RpcConnection
 {
 public:
@@ -27,6 +35,8 @@ public:
     int Fd() const;
 
     bool IsOpen() const;
+    bool SetNonBlocking();
+    RpcReadStatus ReadOnce();
 
     void Close();
 
