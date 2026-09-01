@@ -13,6 +13,9 @@
 
 #include <minirpc/rpc_codec.h>
 
+#include <minirpc/rpc_buffer.h>
+#include <cstring>
+
 RpcServer::RpcServer(
     std::size_t worker_count,
     std::size_t max_queue_size)
@@ -145,307 +148,326 @@ bool RpcServer::SendErrorResponse(
 
 bool RpcServer::HandleClient(int client_fd)
 {
-    while(true)
+    RpcBuffer receive_buffer(8192);
+
+    char temp_buffer[8192];
+
+
+    auto ReadMoreData = [&]() -> bool
     {
-   // =================================
-// 1. 接收 Request Header 长度
-// =================================
-
-uint32_t network_header_size = 0;
-
-if (!RecvAll(
-        client_fd,
-        &network_header_size,
-        sizeof(network_header_size)))
-{
-    return false;
-}
-
-uint32_t header_size =
-    ntohl(network_header_size);
-
-
-// Header长度保护
-if (header_size == 0 ||
-    header_size > minirpc::MAX_HEADER_SIZE)
-{
-    SendErrorResponse(
-        client_fd,
-        0,
-        minirpc::RPC_BAD_REQUEST,
-        "Invalid header size"
-    );
-
-    return false;
-}
-
-
-// =================================
-// 2. 接收 Request Header
-// =================================
-
-std::string header_data(
-    header_size,
-    '\0'
-);
-
-if (!RecvAll(
-        client_fd,
-        header_data.data(),
-        header_size))
-{
-    return false;
-}
-
-
-// 先解析一次Header，用来知道payload长度
-minirpc::RpcHeader framing_header;
-
-if (!framing_header.ParseFromString(
-        header_data))
-{
-    SendErrorResponse(
-        client_fd,
-        0,
-        minirpc::RPC_BAD_REQUEST,
-        "Failed to parse RPC header"
-    );
-
-    return false;
-}
-
-
-// Payload长度保护
-if (framing_header.args_size()
-    > minirpc::MAX_PAYLOAD_SIZE)
-{
-    SendErrorResponse(
-        client_fd,
-        framing_header.request_id(),
-        minirpc::RPC_BAD_REQUEST,
-        "Payload too large"
-    );
-
-    return false;
-}
-
-
-// =================================
-// 3. 接收 Request Payload
-// =================================
-
-std::string request_payload(
-    framing_header.args_size(),
-    '\0'
-);
-
-if (framing_header.args_size() > 0)
-{
-    if (!RecvAll(
+        ssize_t n = recv(
             client_fd,
-            request_payload.data(),
-            framing_header.args_size()))
+            temp_buffer,
+            sizeof(temp_buffer),
+            0
+        );
+
+        if (n <= 0)
+        {
+            return false;
+        }
+
+        receive_buffer.Append(
+            temp_buffer,
+            static_cast<std::size_t>(n)
+        );
+
+        return true;
+    };
+
+
+    while (true)
     {
-        return false;
+        // =================================
+        // 1. 至少获得 4 字节 header_size
+        // =================================
+
+        while (receive_buffer.ReadableBytes()
+               < sizeof(uint32_t))
+        {
+            if (!ReadMoreData())
+            {
+                return false;
+            }
+        }
+
+
+        uint32_t network_header_size = 0;
+
+        std::memcpy(
+            &network_header_size,
+            receive_buffer.Peek(),
+            sizeof(network_header_size)
+        );
+
+
+        uint32_t header_size =
+            ntohl(network_header_size);
+
+
+        if (header_size == 0 ||
+            header_size > minirpc::MAX_HEADER_SIZE)
+        {
+            SendErrorResponse(
+                client_fd,
+                0,
+                minirpc::RPC_BAD_REQUEST,
+                "Invalid header size"
+            );
+
+            return false;
+        }
+
+
+        // =================================
+        // 2. 等待完整 RpcHeader
+        // =================================
+
+        std::size_t header_end =
+            sizeof(uint32_t)
+            +
+            header_size;
+
+
+        while (receive_buffer.ReadableBytes()
+               < header_end)
+        {
+            if (!ReadMoreData())
+            {
+                return false;
+            }
+        }
+
+
+        minirpc::RpcHeader framing_header;
+
+
+        if (!framing_header.ParseFromArray(
+                receive_buffer.Peek()
+                    + sizeof(uint32_t),
+                static_cast<int>(header_size)))
+        {
+            SendErrorResponse(
+                client_fd,
+                0,
+                minirpc::RPC_BAD_REQUEST,
+                "Failed to parse RPC header"
+            );
+
+            return false;
+        }
+
+
+        if (framing_header.args_size()
+            > minirpc::MAX_PAYLOAD_SIZE)
+        {
+            SendErrorResponse(
+                client_fd,
+                framing_header.request_id(),
+                minirpc::RPC_BAD_REQUEST,
+                "Payload too large"
+            );
+
+            return false;
+        }
+
+
+        // =================================
+        // 3. 等待完整 RPC Frame
+        // =================================
+
+        std::size_t packet_size =
+            sizeof(uint32_t)
+            +
+            header_size
+            +
+            framing_header.args_size();
+
+
+        while (receive_buffer.ReadableBytes()
+               < packet_size)
+        {
+            if (!ReadMoreData())
+            {
+                return false;
+            }
+        }
+
+
+        // 只消费当前 RPC。
+        // 如果 buffer 中还有下一个 RPC，
+        // 剩余数据继续保留。
+        std::string request_packet =
+            receive_buffer.RetrieveAsString(
+                packet_size
+            );
+
+
+        // =================================
+        // 4. RpcCodec 解码
+        // =================================
+
+        minirpc::RpcHeader header;
+
+        std::string args_data;
+
+
+        if (!RpcCodec::DecodeRequest(
+                request_packet,
+                header,
+                args_data))
+        {
+            SendErrorResponse(
+                client_fd,
+                framing_header.request_id(),
+                minirpc::RPC_BAD_REQUEST,
+                "Failed to decode RPC request"
+            );
+
+            return false;
+        }
+
+
+        if (header.args_size()
+            != args_data.size())
+        {
+            SendErrorResponse(
+                client_fd,
+                header.request_id(),
+                minirpc::RPC_BAD_REQUEST,
+                "RPC payload size mismatch"
+            );
+
+            return false;
+        }
+
+
+        // =================================
+        // 5. RPC 协议检查
+        // =================================
+
+        if (header.magic()
+            != minirpc::RPC_MAGIC)
+        {
+            SendErrorResponse(
+                client_fd,
+                header.request_id(),
+                minirpc::RPC_BAD_REQUEST,
+                "Invalid RPC magic"
+            );
+
+            return false;
+        }
+
+
+        if (header.version()
+            != minirpc::RPC_VERSION)
+        {
+            SendErrorResponse(
+                client_fd,
+                header.request_id(),
+                minirpc::RPC_BAD_REQUEST,
+                "Unsupported RPC version"
+            );
+
+            return false;
+        }
+
+
+        // =================================
+        // 6. Dispatcher
+        // =================================
+
+        std::string response_data;
+
+        minirpc::RpcErrorCode error_code =
+            minirpc::RPC_OK;
+
+        std::string error_message;
+
+
+        if (!dispatcher_.HasMethod(
+                header.service_name(),
+                header.method_name()))
+        {
+            error_code =
+                minirpc::RPC_METHOD_NOT_FOUND;
+
+            error_message =
+                "RPC method not found";
+
+            response_data.clear();
+        }
+        else if (!dispatcher_.Dispatch(
+                     header.service_name(),
+                     header.method_name(),
+                     args_data,
+                     response_data))
+        {
+            error_code =
+                minirpc::RPC_BAD_REQUEST;
+
+            error_message =
+                "RPC request execution failed";
+
+            response_data.clear();
+        }
+
+
+        // =================================
+        // 7. 构造 Response
+        // =================================
+
+        minirpc::RpcResponseHeader response_header;
+
+
+        response_header.set_request_id(
+            header.request_id()
+        );
+
+        response_header.set_error_code(
+            error_code
+        );
+
+        response_header.set_error_message(
+            error_message
+        );
+
+        response_header.set_payload_size(
+            static_cast<uint32_t>(
+                response_data.size()
+            )
+        );
+
+        response_header.set_magic(
+            minirpc::RPC_MAGIC
+        );
+
+        response_header.set_version(
+            minirpc::RPC_VERSION
+        );
+
+
+        std::string response_packet;
+
+
+        if (!RpcCodec::EncodeResponse(
+                response_header,
+                response_data,
+                response_packet))
+        {
+            return false;
+        }
+
+
+        if (!SendAll(
+                client_fd,
+                response_packet.data(),
+                response_packet.size()))
+        {
+            return false;
+        }
     }
-}
-
-
-// =================================
-// 4. 重新组成完整 Request Packet
-// =================================
-
-std::string request_packet;
-
-request_packet.append(
-    reinterpret_cast<const char*>(
-        &network_header_size),
-    sizeof(network_header_size)
-);
-
-request_packet.append(
-    header_data
-);
-
-request_packet.append(
-    request_payload
-);
-
-
-// =================================
-// 5. 使用 RpcCodec 解码
-// =================================
-
-minirpc::RpcHeader header;
-std::string args_data;
-
-if (!RpcCodec::DecodeRequest(
-        request_packet,
-        header,
-        args_data))
-{
-    SendErrorResponse(
-        client_fd,
-        framing_header.request_id(),
-        minirpc::RPC_BAD_REQUEST,
-        "Failed to decode RPC request"
-    );
-
-    return false;
-}
-
-
-// 检查声明长度和实际长度是否一致
-if (header.args_size()
-    != args_data.size())
-{
-    SendErrorResponse(
-        client_fd,
-        header.request_id(),
-        minirpc::RPC_BAD_REQUEST,
-        "RPC payload size mismatch"
-    );
-
-    return false;
-}
-
-
-// =================================
-// 6. RPC协议检查
-// =================================
-
-if (header.magic()
-    != minirpc::RPC_MAGIC)
-{
-    SendErrorResponse(
-        client_fd,
-        header.request_id(),
-        minirpc::RPC_BAD_REQUEST,
-        "Invalid RPC magic"
-    );
-
-    return false;
-}
-
-
-if (header.version()
-    != minirpc::RPC_VERSION)
-{
-    SendErrorResponse(
-        client_fd,
-        header.request_id(),
-        minirpc::RPC_BAD_REQUEST,
-        "Unsupported RPC version"
-    );
-
-    return false;
-}
-    
-    std::string response_data;
-
-minirpc::RpcErrorCode error_code =
-    minirpc::RPC_OK;
-
-std::string error_message;
-
-// 方法不存在
-if (!dispatcher_.HasMethod(
-        header.service_name(),
-        header.method_name()))
-{
-    error_code =
-        minirpc::RPC_METHOD_NOT_FOUND;
-
-    error_message =
-        "RPC method not found";
-
-    response_data.clear();
-}
-
-// 方法存在，执行失败
-else if (!dispatcher_.Dispatch(
-             header.service_name(),
-             header.method_name(),
-             args_data,
-             response_data))
-{
-    error_code =
-        minirpc::RPC_BAD_REQUEST;
-
-    error_message =
-        "RPC request execution failed";
-
-    response_data.clear();
-}
-
-
-// =================================
-// 构造 RPC Response Header
-// =================================
-
-minirpc::RpcResponseHeader response_header;
-
-response_header.set_request_id(
-    header.request_id()
-);
-
-response_header.set_error_code(
-    error_code
-);
-
-response_header.set_error_message(
-    error_message
-);
-
-response_header.set_payload_size(
-    static_cast<uint32_t>(
-        response_data.size()
-    )
-);
-
-// RPC协议信息
-response_header.set_magic(
-    minirpc::RPC_MAGIC
-);
-
-response_header.set_version(
-    minirpc::RPC_VERSION
-);
-
-
-// =================================
-// 使用 RpcCodec 编码完整 Response
-// =================================
-
-std::string response_packet;
-
-if (!RpcCodec::EncodeResponse(
-        response_header,
-        response_data,
-        response_packet))
-{
-    return false;
-}
-
-
-// =================================
-// 发送完整 Response Packet
-// =================================
-
-if (!SendAll(
-        client_fd,
-        response_packet.data(),
-        response_packet.size()))
-{
-    return false;
-}
-
-
-
-    }
-
-    return true;
-
 }
 
 bool RpcServer::RejectOverloadedClient(

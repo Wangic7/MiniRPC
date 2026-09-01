@@ -60,6 +60,7 @@ add_library(
     src/minirpc/rpc_channel.cpp
     src/minirpc/thread_pool.cpp
     src/minirpc/rpc_codec.cpp
+    src/minirpc/rpc_buffer.cpp
     ${MINIRPC_PROTO_GENERATED}
 )
 
@@ -187,4 +188,15 @@ add_executable(rpc_benchmark
 target_link_libraries(rpc_benchmark
     minirpc
     calculator_proto
+)
+
+
+add_executable(
+    rpc_buffer_test
+    tests/rpc_buffer_test.cpp
+)
+
+target_link_libraries(
+    rpc_buffer_test
+    minirpc
 )
