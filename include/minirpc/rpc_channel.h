@@ -5,6 +5,8 @@
 
 #include <google/protobuf/message.h>
 
+#include <minirpc/rpc_buffer.h>
+
 class RpcChannel
 {
 public:
@@ -46,5 +48,7 @@ private:
     int timeout_ms_;
     // 长连接socket
     int sockfd_;
+
+    RpcBuffer receive_buffer_;
 
 };

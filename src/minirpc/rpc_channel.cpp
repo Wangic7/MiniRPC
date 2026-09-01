@@ -21,6 +21,8 @@
 
 #include <minirpc/rpc_codec.h>
 
+#include <cstring>
+
 RpcChannel::RpcChannel(
     std::string host,
     uint16_t port,
@@ -28,7 +30,8 @@ RpcChannel::RpcChannel(
     : host_(std::move(host)),
       port_(port),
       timeout_ms_(timeout_ms),
-      sockfd_(-1)
+      sockfd_(-1),
+      receive_buffer_(8192)
 {
 }
 
@@ -46,6 +49,9 @@ RpcChannel::~RpcChannel()
 
 bool RpcChannel::Connect()
 {
+
+    receive_buffer_.Clear();
+
     sockfd_ =
         socket(AF_INET, SOCK_STREAM, 0);
 
@@ -324,36 +330,78 @@ if(!RpcCodec::EncodeRequest(
 
 
 // =================================
-// 6. 接收 Response Header 长度
+// 6. 使用 RpcBuffer 接收完整 Response
 // =================================
+
+char temp_buffer[8192];
+
+
+auto ReadMoreData = [&]() -> bool
+{
+    ssize_t n = recv(
+        sockfd_,
+        temp_buffer,
+        sizeof(temp_buffer),
+        0
+    );
+
+    if (n <= 0)
+    {
+        std::cerr
+            << "RPC receive failed or timed out after "
+            << timeout_ms_
+            << " ms"
+            << std::endl;
+
+        close(sockfd_);
+        sockfd_ = -1;
+
+        receive_buffer_.Clear();
+
+        return false;
+    }
+
+
+    receive_buffer_.Append(
+        temp_buffer,
+        static_cast<std::size_t>(n)
+    );
+
+    return true;
+};
+
+
+// =================================
+// 7. 等待 response header size
+// =================================
+
+while (receive_buffer_.ReadableBytes()
+       < sizeof(uint32_t))
+{
+    if (!ReadMoreData())
+    {
+        return false;
+    }
+}
+
 
 uint32_t network_response_header_size = 0;
 
-if(!RecvAll(
-        sockfd_,
-        &network_response_header_size,
-        sizeof(network_response_header_size)))
-{
-    std::cerr
-        << "RPC receive failed or timed out after "
-        << timeout_ms_
-        << " ms"
-        << std::endl;
 
-    close(sockfd_);
-    sockfd_ = -1;
-
-    return false;
-}
+std::memcpy(
+    &network_response_header_size,
+    receive_buffer_.Peek(),
+    sizeof(network_response_header_size)
+);
 
 
 uint32_t response_header_size =
     ntohl(network_response_header_size);
 
 
-// Header长度保护
-if(response_header_size == 0 ||
-   response_header_size > minirpc::MAX_HEADER_SIZE)
+if (response_header_size == 0 ||
+    response_header_size
+        > minirpc::MAX_HEADER_SIZE)
 {
     std::cerr
         << "Invalid RPC response header size"
@@ -362,44 +410,40 @@ if(response_header_size == 0 ||
     close(sockfd_);
     sockfd_ = -1;
 
+    receive_buffer_.Clear();
+
     return false;
 }
 
 
-
 // =================================
-// 7. 接收 Response Header
+// 8. 等待完整 Response Header
 // =================================
 
-std::string response_header_data(
-    response_header_size,
-    '\0'
-);
+std::size_t header_end =
+    sizeof(uint32_t)
+    +
+    response_header_size;
 
 
-if(!RecvAll(
-        sockfd_,
-        response_header_data.data(),
-        response_header_size))
+while (receive_buffer_.ReadableBytes()
+       < header_end)
 {
-    std::cerr
-        << "Failed to receive response header"
-        << std::endl;
-
-    close(sockfd_);
-    sockfd_ = -1;
-
-    return false;
+    if (!ReadMoreData())
+    {
+        return false;
+    }
 }
 
 
-
-// 先解析一次Header，目的是获得payload_size
 minirpc::RpcResponseHeader framing_header;
 
 
-if(!framing_header.ParseFromString(
-        response_header_data))
+if (!framing_header.ParseFromArray(
+        receive_buffer_.Peek()
+            + sizeof(uint32_t),
+        static_cast<int>(
+            response_header_size)))
 {
     std::cerr
         << "Failed to parse response header"
@@ -408,13 +452,13 @@ if(!framing_header.ParseFromString(
     close(sockfd_);
     sockfd_ = -1;
 
+    receive_buffer_.Clear();
+
     return false;
 }
 
 
-
-// Payload长度保护
-if(framing_header.payload_size()
+if (framing_header.payload_size()
     > minirpc::MAX_PAYLOAD_SIZE)
 {
     std::cerr
@@ -424,72 +468,44 @@ if(framing_header.payload_size()
     close(sockfd_);
     sockfd_ = -1;
 
+    receive_buffer_.Clear();
+
     return false;
 }
 
 
-
 // =================================
-// 8. 接收 Response Payload
+// 9. 等待完整 Response Frame
 // =================================
 
-uint32_t payload_size =
+std::size_t response_packet_size =
+    sizeof(uint32_t)
+    +
+    response_header_size
+    +
     framing_header.payload_size();
 
 
-std::string response_payload(
-    payload_size,
-    '\0'
-);
-
-
-if(payload_size > 0)
+while (receive_buffer_.ReadableBytes()
+       < response_packet_size)
 {
-    if(!RecvAll(
-            sockfd_,
-            response_payload.data(),
-            payload_size))
+    if (!ReadMoreData())
     {
-        std::cerr
-            << "Failed to receive response payload"
-            << std::endl;
-
-        close(sockfd_);
-        sockfd_ = -1;
-
         return false;
     }
 }
 
 
-
-// =================================
-// 9. 重新组成完整Response Packet
-// =================================
-
-std::string response_packet;
-
-
-response_packet.append(
-    reinterpret_cast<const char*>(
-        &network_response_header_size),
-    sizeof(network_response_header_size)
-);
-
-
-response_packet.append(
-    response_header_data
-);
-
-
-response_packet.append(
-    response_payload
-);
-
+// 只消费当前 Response。
+// 剩余数据继续留在 Buffer 中。
+std::string response_packet =
+    receive_buffer_.RetrieveAsString(
+        response_packet_size
+    );
 
 
 // =================================
-// 10. 使用 RpcCodec 解码
+// 10. RpcCodec 解码
 // =================================
 
 minirpc::RpcResponseHeader response_header;
@@ -497,7 +513,7 @@ minirpc::RpcResponseHeader response_header;
 std::string response_data;
 
 
-if(!RpcCodec::DecodeResponse(
+if (!RpcCodec::DecodeResponse(
         response_packet,
         response_header,
         response_data))
@@ -508,6 +524,24 @@ if(!RpcCodec::DecodeResponse(
 
     close(sockfd_);
     sockfd_ = -1;
+
+    receive_buffer_.Clear();
+
+    return false;
+}
+
+
+if (response_header.payload_size()
+    != response_data.size())
+{
+    std::cerr
+        << "RPC response payload size mismatch"
+        << std::endl;
+
+    close(sockfd_);
+    sockfd_ = -1;
+
+    receive_buffer_.Clear();
 
     return false;
 }
