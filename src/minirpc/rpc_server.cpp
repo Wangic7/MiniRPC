@@ -797,9 +797,7 @@ bool RpcServer::Start(uint16_t port)
         << "..."
         << std::endl;
 
-     Epoller epoller;
-
-    if (!epoller.Add(
+    if (!epoller_.Add(
             server_fd,
             EPOLLIN))
     {
@@ -816,7 +814,7 @@ bool RpcServer::Start(uint16_t port)
     while (true)
     {
         int ready =
-            epoller.Wait(-1);
+            epoller_.Wait(-1);
 
         if (ready < 0)
         {
@@ -833,7 +831,7 @@ bool RpcServer::Start(uint16_t port)
              ++i)
         {
           const epoll_event& event =
-    epoller.Event(
+    epoller_.Event(
         static_cast<std::size_t>(i)
     );
 
@@ -897,7 +895,7 @@ if (!connection.SetNonBlocking())
 }
 
 
-if (!epoller.Add(
+if (!epoller_.Add(
         client_fd,
         EPOLLIN))
 {
