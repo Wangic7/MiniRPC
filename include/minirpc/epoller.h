@@ -10,6 +10,8 @@
 class Epoller
 {
 public:
+
+bool Remove(int fd);
     explicit Epoller(
         std::size_t max_events = 1024
     );

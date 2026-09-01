@@ -132,3 +132,40 @@ RpcBuffer& RpcConnection::OutputBuffer()
 {
     return output_buffer_;
 }
+
+RpcConnection::RpcConnection(
+    RpcConnection&& other
+) noexcept
+    :
+    fd_(other.fd_),
+    input_buffer_(std::move(other.input_buffer_)),
+    output_buffer_(std::move(other.output_buffer_))
+{
+    other.fd_ = -1;
+}
+
+
+RpcConnection& RpcConnection::operator=(
+    RpcConnection&& other
+) noexcept
+{
+    if (this != &other)
+    {
+        if (fd_ >= 0)
+        {
+            close(fd_);
+        }
+
+        fd_ = other.fd_;
+
+        input_buffer_ =
+            std::move(other.input_buffer_);
+
+        output_buffer_ =
+            std::move(other.output_buffer_);
+
+        other.fd_ = -1;
+    }
+
+    return *this;
+}

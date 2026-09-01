@@ -21,6 +21,15 @@ public:
         std::size_t buffer_size = 8192
     );
 
+    RpcConnection(
+    RpcConnection&& other
+) noexcept;
+
+
+RpcConnection& operator=(
+    RpcConnection&& other
+) noexcept;
+
     ~RpcConnection();
 
     RpcConnection(

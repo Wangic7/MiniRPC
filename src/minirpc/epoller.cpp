@@ -128,3 +128,15 @@ const epoll_event& Epoller::Event(
 {
     return events_.at(index);
 }
+
+
+bool Epoller::Remove(
+    int fd)
+{
+    return epoll_ctl(
+        epoll_fd_,
+        EPOLL_CTL_DEL,
+        fd,
+        nullptr
+    ) == 0;
+}

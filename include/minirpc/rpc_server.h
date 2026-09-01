@@ -10,6 +10,10 @@
 
 #include <minirpc/rpc_connection.h>
 
+#include <unordered_map>
+#include <memory>
+#include "minirpc/epoller.h"
+
 class RpcServer
 {
 public:
@@ -31,7 +35,30 @@ public:
     bool Start(uint16_t port);
 
 private:
+
+    enum class FrameStatus
+{
+    NeedMoreData,
+    Ready,
+    Error
+};
+
+FrameStatus TryExtractRequestPacket(
+    RpcConnection& connection,
+    std::string& request_packet
+);
+
     bool HandleClient(RpcConnection& connection);
+    bool HandleClientEvent(
+    int client_fd
+);
+
+bool ProcessRequest(
+    int client_fd,
+    const std::string& request_packet
+);
+
+
     bool RejectOverloadedClient(int client_fd);
     bool SendErrorResponse(
      int client_fd,
@@ -54,4 +81,10 @@ private:
 private:
     RpcDispatcher dispatcher_;
     ThreadPool thread_pool_;
+    Epoller epoller_;
+
+        std::unordered_map<
+        int,
+        std::unique_ptr<RpcConnection>
+    > connections_;
 };

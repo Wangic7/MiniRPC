@@ -150,9 +150,174 @@ bool RpcServer::SendErrorResponse(
     );
 }
 
+RpcServer::FrameStatus
+RpcServer::TryExtractRequestPacket(
+    RpcConnection& connection,
+    std::string& request_packet)
+{
+    RpcBuffer& receive_buffer =
+        connection.InputBuffer();
+
+    int client_fd =
+        connection.Fd();
+
+
+    // 1. 还没有收到完整的 header_size
+    if (receive_buffer.ReadableBytes()
+        < sizeof(uint32_t))
+    {
+        return FrameStatus::NeedMoreData;
+    }
+
+
+    uint32_t network_header_size = 0;
+
+    std::memcpy(
+        &network_header_size,
+        receive_buffer.Peek(),
+        sizeof(network_header_size)
+    );
+
+    uint32_t header_size =
+        ntohl(network_header_size);
+
+
+    if (header_size == 0 ||
+        header_size >
+            minirpc::MAX_HEADER_SIZE)
+    {
+        SendErrorResponse(
+            client_fd,
+            0,
+            minirpc::RPC_BAD_REQUEST,
+            "Invalid header size"
+        );
+
+        return FrameStatus::Error;
+    }
+
+
+    // 2. RpcHeader 还没有完整到达
+    std::size_t header_end =
+        sizeof(uint32_t)
+        +
+        header_size;
+
+    if (receive_buffer.ReadableBytes()
+        < header_end)
+    {
+        return FrameStatus::NeedMoreData;
+    }
+
+
+    minirpc::RpcHeader framing_header;
+
+    if (!framing_header.ParseFromArray(
+            receive_buffer.Peek()
+                + sizeof(uint32_t),
+            static_cast<int>(
+                header_size)))
+    {
+        SendErrorResponse(
+            client_fd,
+            0,
+            minirpc::RPC_BAD_REQUEST,
+            "Failed to parse RPC header"
+        );
+
+        return FrameStatus::Error;
+    }
+
+
+    if (framing_header.args_size()
+        > minirpc::MAX_PAYLOAD_SIZE)
+    {
+        SendErrorResponse(
+            client_fd,
+            framing_header.request_id(),
+            minirpc::RPC_BAD_REQUEST,
+            "Payload too large"
+        );
+
+        return FrameStatus::Error;
+    }
+
+
+    // 3. 整个 RPC Frame 还没有完整到达
+    std::size_t packet_size =
+        sizeof(uint32_t)
+        +
+        header_size
+        +
+        framing_header.args_size();
+
+    if (receive_buffer.ReadableBytes()
+        < packet_size)
+    {
+        return FrameStatus::NeedMoreData;
+    }
+
+
+    // 4. 一条完整 RPC 已经到达
+    request_packet =
+        receive_buffer.RetrieveAsString(
+            packet_size
+        );
+
+    return FrameStatus::Ready;
+}
+
+bool RpcServer::HandleClientEvent(
+    int client_fd)
+{
+    auto it =
+        connections_.find(
+            client_fd
+        );
+
+    if (it == connections_.end())
+    {
+        return false;
+    }
+
+
+    RpcConnection& connection =
+        *(it->second);
+
+
+    return HandleClient(connection);
+}
+
+bool RpcServer::ProcessRequest(
+    int client_fd,
+    const std::string& request_packet
+)
+{
+    minirpc::RpcHeader header;
+
+    std::string args_data;
+
+
+    if (!RpcCodec::DecodeRequest(
+            request_packet,
+            header,
+            args_data))
+    {
+        return false;
+    }
+
+
+    return true;
+}
+
 bool RpcServer::HandleClient(
     RpcConnection& connection)
 {
+
+    std::cout << "Enter HandleClient fd="
+          << connection.Fd()
+          << std::endl;
+
     int client_fd =
         connection.Fd();
 
@@ -170,10 +335,27 @@ bool RpcServer::HandleClient(
             0
         );
 
-        if (n <= 0)
-        {
-            return false;
-        }
+if (n < 0)
+{
+    if (errno == EINTR)
+    {
+        return true;
+    }
+
+if (errno == EAGAIN ||
+    errno == EWOULDBLOCK)
+{
+    return false;
+}
+
+    return false;
+}
+
+
+if (n == 0)
+{
+    return false;
+}
 
         receive_buffer.Append(
             temp_buffer,
@@ -186,13 +368,31 @@ bool RpcServer::HandleClient(
 
     while (true)
     {
-        // =================================
-        // 1. 至少获得 4 字节 header_size
-        // =================================
+        std::string request_packet;
 
-        while (receive_buffer.ReadableBytes()
-               < sizeof(uint32_t))
+        while (true)
         {
+            FrameStatus frame_status =
+                TryExtractRequestPacket(
+                    connection,
+                    request_packet
+                );
+
+            if (frame_status ==
+                FrameStatus::Ready)
+            {
+                break;
+            }
+
+            if (frame_status ==
+                FrameStatus::Error)
+            {
+                return false;
+            }
+
+            // NeedMoreData:
+            // 当前仍是阻塞版本，
+            // 所以继续从 socket 读取。
             if (!ReadMoreData())
             {
                 return false;
@@ -200,281 +400,170 @@ bool RpcServer::HandleClient(
         }
 
 
-        uint32_t network_header_size = 0;
+            // =================================
+            // 4. RpcCodec 解码
+            // =================================
 
-        std::memcpy(
-            &network_header_size,
-            receive_buffer.Peek(),
-            sizeof(network_header_size)
+            minirpc::RpcHeader header;
+
+            std::string args_data;
+
+
+    if (!RpcCodec::DecodeRequest(
+            request_packet,
+            header,
+            args_data))
+    {
+        SendErrorResponse(
+            client_fd,
+            0,
+            minirpc::RPC_BAD_REQUEST,
+            "Failed to decode RPC request"
         );
 
+        return false;
+    }
 
-        uint32_t header_size =
-            ntohl(network_header_size);
+
+            if (header.args_size()
+                != args_data.size())
+            {
+                SendErrorResponse(
+                    client_fd,
+                    header.request_id(),
+                    minirpc::RPC_BAD_REQUEST,
+                    "RPC payload size mismatch"
+                );
+
+                return false;
+            }
 
 
-        if (header_size == 0 ||
-            header_size > minirpc::MAX_HEADER_SIZE)
-        {
-            SendErrorResponse(
-                client_fd,
-                0,
-                minirpc::RPC_BAD_REQUEST,
-                "Invalid header size"
+            // =================================
+            // 5. RPC 协议检查
+            // =================================
+
+            if (header.magic()
+                != minirpc::RPC_MAGIC)
+            {
+                SendErrorResponse(
+                    client_fd,
+                    header.request_id(),
+                    minirpc::RPC_BAD_REQUEST,
+                    "Invalid RPC magic"
+                );
+
+                return false;
+            }
+
+
+            if (header.version()
+                != minirpc::RPC_VERSION)
+            {
+                SendErrorResponse(
+                    client_fd,
+                    header.request_id(),
+                    minirpc::RPC_BAD_REQUEST,
+                    "Unsupported RPC version"
+                );
+
+                return false;
+            }
+
+
+            // =================================
+            // 6. Dispatcher
+            // =================================
+
+            std::string response_data;
+
+            minirpc::RpcErrorCode error_code =
+                minirpc::RPC_OK;
+
+            std::string error_message;
+
+
+            if (!dispatcher_.HasMethod(
+                    header.service_name(),
+                    header.method_name()))
+            {
+                error_code =
+                    minirpc::RPC_METHOD_NOT_FOUND;
+
+                error_message =
+                    "RPC method not found";
+
+                response_data.clear();
+            }
+            else if (!dispatcher_.Dispatch(
+                        header.service_name(),
+                        header.method_name(),
+                        args_data,
+                        response_data))
+            {
+                error_code =
+                    minirpc::RPC_BAD_REQUEST;
+
+                error_message =
+                    "RPC request execution failed";
+
+                response_data.clear();
+            }
+
+
+            // =================================
+            // 7. 构造 Response
+            // =================================
+
+            minirpc::RpcResponseHeader response_header;
+
+
+            response_header.set_request_id(
+                header.request_id()
             );
 
-            return false;
-        }
+            response_header.set_error_code(
+                error_code
+            );
+
+            response_header.set_error_message(
+                error_message
+            );
+
+            response_header.set_payload_size(
+                static_cast<uint32_t>(
+                    response_data.size()
+                )
+            );
+
+            response_header.set_magic(
+                minirpc::RPC_MAGIC
+            );
+
+            response_header.set_version(
+                minirpc::RPC_VERSION
+            );
 
 
-        // =================================
-        // 2. 等待完整 RpcHeader
-        // =================================
-
-        std::size_t header_end =
-            sizeof(uint32_t)
-            +
-            header_size;
+            std::string response_packet;
 
 
-        while (receive_buffer.ReadableBytes()
-               < header_end)
-        {
-            if (!ReadMoreData())
+            if (!RpcCodec::EncodeResponse(
+                    response_header,
+                    response_data,
+                    response_packet))
             {
                 return false;
             }
-        }
 
 
-        minirpc::RpcHeader framing_header;
-
-
-        if (!framing_header.ParseFromArray(
-                receive_buffer.Peek()
-                    + sizeof(uint32_t),
-                static_cast<int>(header_size)))
-        {
-            SendErrorResponse(
-                client_fd,
-                0,
-                minirpc::RPC_BAD_REQUEST,
-                "Failed to parse RPC header"
-            );
-
-            return false;
-        }
-
-
-        if (framing_header.args_size()
-            > minirpc::MAX_PAYLOAD_SIZE)
-        {
-            SendErrorResponse(
-                client_fd,
-                framing_header.request_id(),
-                minirpc::RPC_BAD_REQUEST,
-                "Payload too large"
-            );
-
-            return false;
-        }
-
-
-        // =================================
-        // 3. 等待完整 RPC Frame
-        // =================================
-
-        std::size_t packet_size =
-            sizeof(uint32_t)
-            +
-            header_size
-            +
-            framing_header.args_size();
-
-
-        while (receive_buffer.ReadableBytes()
-               < packet_size)
-        {
-            if (!ReadMoreData())
+            if (!SendAll(
+                    client_fd,
+                    response_packet.data(),
+                    response_packet.size()))
             {
                 return false;
             }
-        }
-
-
-        // 只消费当前 RPC。
-        // 如果 buffer 中还有下一个 RPC，
-        // 剩余数据继续保留。
-        std::string request_packet =
-            receive_buffer.RetrieveAsString(
-                packet_size
-            );
-
-
-        // =================================
-        // 4. RpcCodec 解码
-        // =================================
-
-        minirpc::RpcHeader header;
-
-        std::string args_data;
-
-
-        if (!RpcCodec::DecodeRequest(
-                request_packet,
-                header,
-                args_data))
-        {
-            SendErrorResponse(
-                client_fd,
-                framing_header.request_id(),
-                minirpc::RPC_BAD_REQUEST,
-                "Failed to decode RPC request"
-            );
-
-            return false;
-        }
-
-
-        if (header.args_size()
-            != args_data.size())
-        {
-            SendErrorResponse(
-                client_fd,
-                header.request_id(),
-                minirpc::RPC_BAD_REQUEST,
-                "RPC payload size mismatch"
-            );
-
-            return false;
-        }
-
-
-        // =================================
-        // 5. RPC 协议检查
-        // =================================
-
-        if (header.magic()
-            != minirpc::RPC_MAGIC)
-        {
-            SendErrorResponse(
-                client_fd,
-                header.request_id(),
-                minirpc::RPC_BAD_REQUEST,
-                "Invalid RPC magic"
-            );
-
-            return false;
-        }
-
-
-        if (header.version()
-            != minirpc::RPC_VERSION)
-        {
-            SendErrorResponse(
-                client_fd,
-                header.request_id(),
-                minirpc::RPC_BAD_REQUEST,
-                "Unsupported RPC version"
-            );
-
-            return false;
-        }
-
-
-        // =================================
-        // 6. Dispatcher
-        // =================================
-
-        std::string response_data;
-
-        minirpc::RpcErrorCode error_code =
-            minirpc::RPC_OK;
-
-        std::string error_message;
-
-
-        if (!dispatcher_.HasMethod(
-                header.service_name(),
-                header.method_name()))
-        {
-            error_code =
-                minirpc::RPC_METHOD_NOT_FOUND;
-
-            error_message =
-                "RPC method not found";
-
-            response_data.clear();
-        }
-        else if (!dispatcher_.Dispatch(
-                     header.service_name(),
-                     header.method_name(),
-                     args_data,
-                     response_data))
-        {
-            error_code =
-                minirpc::RPC_BAD_REQUEST;
-
-            error_message =
-                "RPC request execution failed";
-
-            response_data.clear();
-        }
-
-
-        // =================================
-        // 7. 构造 Response
-        // =================================
-
-        minirpc::RpcResponseHeader response_header;
-
-
-        response_header.set_request_id(
-            header.request_id()
-        );
-
-        response_header.set_error_code(
-            error_code
-        );
-
-        response_header.set_error_message(
-            error_message
-        );
-
-        response_header.set_payload_size(
-            static_cast<uint32_t>(
-                response_data.size()
-            )
-        );
-
-        response_header.set_magic(
-            minirpc::RPC_MAGIC
-        );
-
-        response_header.set_version(
-            minirpc::RPC_VERSION
-        );
-
-
-        std::string response_packet;
-
-
-        if (!RpcCodec::EncodeResponse(
-                response_header,
-                response_data,
-                response_packet))
-        {
-            return false;
-        }
-
-
-        if (!SendAll(
-                client_fd,
-                response_packet.data(),
-                response_packet.size()))
-        {
-            return false;
-        }
     }
 }
 
@@ -751,11 +840,14 @@ bool RpcServer::Start(uint16_t port)
                 );
 
 
-            if (event.data.fd != server_fd)
-            {
-                continue;
-            }
+if (event.data.fd != server_fd)
+{
+    HandleClientEvent(
+        event.data.fd
+    );
 
+    continue;
+}
 
             if (!(event.events & EPOLLIN))
             {
@@ -788,52 +880,48 @@ bool RpcServer::Start(uint16_t port)
             }
 
 
-            bool submitted =
-                thread_pool_.Submit(
-                    [this, client_fd]()
-                    {
-                        RpcConnection connection(
-                            client_fd
-                        );
+           RpcConnection connection(
+    client_fd
+);
 
 
-                        if (!HandleClient(
-                                connection))
-                        {
-                            std::cout
-                                << "Client closed connection."
-                                << std::endl;
-                        }
+if (!connection.SetNonBlocking())
+{
+    std::cerr
+        << "Failed to set non-blocking"
+        << std::endl;
+
+    close(client_fd);
+    continue;
+}
 
 
-                        std::cout
-                            << "Client disconnected."
-                            << std::endl;
-                    }
-                );
+if (!epoller.Add(
+        client_fd,
+        EPOLLIN))
+{
+    std::cerr
+        << "Failed to add client fd to epoll"
+        << std::endl;
+
+    close(client_fd);
+    continue;
+}
 
 
-            if (!submitted)
-            {
-                std::cerr
-                    << "Server overloaded: "
-                    << "task queue is full. "
-                    << "Rejecting client."
-                    << std::endl;
+connections_.emplace(
+    client_fd,
+    std::make_unique<RpcConnection>(
+        std::move(connection)
+    )
+);
 
 
-                if (!RejectOverloadedClient(
-                        client_fd))
-                {
-                    std::cerr
-                        << "Failed to send SERVER_BUSY response."
-                        << std::endl;
-                }
-
-
-                close(client_fd);
-            }
-        }
+std::cout
+    << "Client connected fd="
+    << client_fd
+    << std::endl;
+    }
     }
 
 
