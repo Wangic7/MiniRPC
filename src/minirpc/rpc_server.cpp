@@ -832,10 +832,11 @@ bool RpcServer::Start(uint16_t port)
              i < ready;
              ++i)
         {
-            const epoll_event& event =
-                epoller.Event(
-                    static_cast<std::size_t>(i)
-                );
+          const epoll_event& event =
+    epoller.Event(
+        static_cast<std::size_t>(i)
+    );
+
 
 
 if (event.data.fd != server_fd)
@@ -846,6 +847,8 @@ if (event.data.fd != server_fd)
 
     continue;
 }
+
+
 
             if (!(event.events & EPOLLIN))
             {

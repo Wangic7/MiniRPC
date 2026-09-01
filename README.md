@@ -310,3 +310,25 @@ Planned:
 ## License
 
 MIT License# MiniRPC
+
+
+## Benchmark
+
+Environment:
+
+- OS: WSL Ubuntu
+- Compiler: g++
+- Threads: 16
+- Requests: 10000
+
+
+Result:
+
+| Metric | Value |
+|---|---:|
+| Success | 10000 |
+| QPS | 23048 |
+| Average latency | 0.679 ms |
+| P50 latency | 0.655 ms |
+| P95 latency | 1.002 ms |
+| P99 latency | 1.209 ms |
