@@ -314,9 +314,7 @@ bool RpcServer::HandleClient(
     RpcConnection& connection)
 {
 
-    std::cout << "Enter HandleClient fd="
-          << connection.Fd()
-          << std::endl;
+    
 
     int client_fd =
         connection.Fd();
