@@ -270,9 +270,47 @@ RpcServer::TryExtractRequestPacket(
     return FrameStatus::Ready;
 }
 
+bool RpcServer::HandleWriteEvent(
+    int client_fd
+)
+{
+    auto it =
+        connections_.find(
+            client_fd
+        );
+
+    if (it == connections_.end())
+    {
+        return false;
+    }
+
+
+    RpcConnection& connection =
+        *(it->second);
+
+
+    if (!connection.FlushOutput())
+    {
+        return false;
+    }
+
+
+    if (!connection.HasOutput())
+    {
+        epoller_.Modify(
+            client_fd,
+            EPOLLIN
+        );
+    }
+
+    return true;
+}
+
+
 bool RpcServer::HandleClientEvent(
     int client_fd,
-    uint32_t events)
+    uint32_t events
+)
 {
     auto it =
         connections_.find(
@@ -309,10 +347,13 @@ bool RpcServer::HandleClientEvent(
 }
 
 bool RpcServer::ProcessRequest(
-    int client_fd,
+    RpcConnection& connection,
     const std::string& request_packet
 )
 {
+
+        int client_fd =
+        connection.Fd();
 
 
     minirpc::RpcHeader header;
@@ -452,11 +493,19 @@ bool RpcServer::ProcessRequest(
     }
 
 
-    return SendAll(
+ connection.OutputBuffer().Append(
+    response_packet.data(),
+    response_packet.size()
+);
+
+if (!epoller_.Modify(
         client_fd,
-        response_packet.data(),
-        response_packet.size()
-    );
+        EPOLLIN | EPOLLOUT))
+{
+    return false;
+}
+
+return true;
 }
 
 bool RpcServer::HandleClient(
@@ -516,7 +565,7 @@ if (read_status == RpcReadStatus::PeerClosed ||
 
 
 if (!ProcessRequest(
-        client_fd,
+        connection,
         request_packet))
 {
     return false;
@@ -798,10 +847,20 @@ bool RpcServer::Start(uint16_t port)
 
 if (event.data.fd != server_fd)
 {
-    HandleClientEvent(
-        event.data.fd,
-         event.events
-    );
+    if (event.events & EPOLLOUT)
+    {
+        HandleWriteEvent(
+            event.data.fd
+        );
+    }
+
+    if (event.events & EPOLLIN)
+    {
+        HandleClientEvent(
+            event.data.fd,
+            event.events
+        );
+    }
 
     continue;
 }

@@ -54,8 +54,12 @@ FrameStatus TryExtractRequestPacket(
     uint32_t events
 );
 
+bool HandleWriteEvent(
+    int client_fd
+);
+
 bool ProcessRequest(
-    int client_fd,
+    RpcConnection& connection,
     const std::string& request_packet
 );
 

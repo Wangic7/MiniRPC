@@ -133,6 +133,54 @@ RpcBuffer& RpcConnection::OutputBuffer()
     return output_buffer_;
 }
 
+bool RpcConnection::HasOutput() const
+{
+    return output_buffer_.ReadableBytes() > 0;
+}
+
+bool RpcConnection::FlushOutput()
+{
+    while (output_buffer_.ReadableBytes() > 0)
+    {
+        ssize_t n =
+            send(
+                fd_,
+                output_buffer_.Peek(),
+                output_buffer_.ReadableBytes(),
+                MSG_NOSIGNAL
+            );
+
+        if (n < 0)
+        {
+            if (errno == EINTR)
+            {
+                continue;
+            }
+
+            if (errno == EAGAIN ||
+                errno == EWOULDBLOCK)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        if (n == 0)
+        {
+            return false;
+        }
+
+        output_buffer_.Retrieve(
+            static_cast<std::size_t>(n)
+        );
+    }
+
+    return true;
+}
+
+
+
 RpcConnection::RpcConnection(
     RpcConnection&& other
 ) noexcept

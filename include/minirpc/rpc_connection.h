@@ -54,6 +54,10 @@ RpcConnection& operator=(
 
     RpcBuffer& OutputBuffer();
 
+    bool HasOutput() const;
+
+    bool FlushOutput();
+
 
 private:
     int fd_;
