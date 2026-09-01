@@ -61,6 +61,7 @@ add_library(
     src/minirpc/thread_pool.cpp
     src/minirpc/rpc_codec.cpp
     src/minirpc/rpc_buffer.cpp
+    src/minirpc/rpc_connection.cpp
     ${MINIRPC_PROTO_GENERATED}
 )
 

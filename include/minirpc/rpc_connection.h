@@ -1,0 +1,45 @@
+#pragma once
+
+#include <cstddef>
+
+#include <minirpc/rpc_buffer.h>
+
+
+class RpcConnection
+{
+public:
+    explicit RpcConnection(
+        int fd,
+        std::size_t buffer_size = 8192
+    );
+
+    ~RpcConnection();
+
+    RpcConnection(
+        const RpcConnection&
+    ) = delete;
+
+    RpcConnection& operator=(
+        const RpcConnection&
+    ) = delete;
+
+
+    int Fd() const;
+
+    bool IsOpen() const;
+
+    void Close();
+
+
+    RpcBuffer& InputBuffer();
+
+    RpcBuffer& OutputBuffer();
+
+
+private:
+    int fd_;
+
+    RpcBuffer input_buffer_;
+
+    RpcBuffer output_buffer_;
+};

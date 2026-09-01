@@ -8,6 +8,8 @@
 #include <cstddef>
 #include <minirpc/thread_pool.h>
 
+#include <minirpc/rpc_connection.h>
+
 class RpcServer
 {
 public:
@@ -29,7 +31,7 @@ public:
     bool Start(uint16_t port);
 
 private:
-    bool HandleClient(int client_fd);
+    bool HandleClient(RpcConnection& connection);
     bool RejectOverloadedClient(int client_fd);
     bool SendErrorResponse(
      int client_fd,

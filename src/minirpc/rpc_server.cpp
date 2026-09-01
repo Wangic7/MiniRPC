@@ -16,6 +16,8 @@
 #include <minirpc/rpc_buffer.h>
 #include <cstring>
 
+#include <minirpc/rpc_connection.h>
+
 RpcServer::RpcServer(
     std::size_t worker_count,
     std::size_t max_queue_size)
@@ -146,12 +148,16 @@ bool RpcServer::SendErrorResponse(
     );
 }
 
-bool RpcServer::HandleClient(int client_fd)
+bool RpcServer::HandleClient(
+    RpcConnection& connection)
 {
-    RpcBuffer receive_buffer(8192);
+    int client_fd =
+        connection.Fd();
+
+    RpcBuffer& receive_buffer =
+        connection.InputBuffer();
 
     char temp_buffer[8192];
-
 
     auto ReadMoreData = [&]() -> bool
     {
@@ -735,14 +741,16 @@ bool submitted =
     thread_pool_.Submit(
         [this, client_fd]()
         {
-          if (!HandleClient(client_fd))
-            {
-              std::cout
-              << "Client closed connection."
-              << std::endl;
-           }    
+            RpcConnection connection(
+                client_fd
+            );
 
-            close(client_fd);
+            if (!HandleClient(connection))
+            {
+                std::cout
+                    << "Client closed connection."
+                    << std::endl;
+            }
 
             std::cout
                 << "Client disconnected."
