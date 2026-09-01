@@ -13,7 +13,9 @@ RpcConnection::RpcConnection(
     std::size_t buffer_size)
     : fd_(fd),
       input_buffer_(buffer_size),
-      output_buffer_(buffer_size)
+      output_buffer_(buffer_size),
+      peer_read_closed_(false),
+      close_after_write_(false)
 {
 }
 
@@ -180,6 +182,30 @@ bool RpcConnection::FlushOutput()
 }
 
 
+void RpcConnection::MarkPeerReadClosed()
+{
+    peer_read_closed_ = true;
+}
+
+
+bool RpcConnection::IsPeerReadClosed() const
+{
+    return peer_read_closed_;
+}
+
+
+void RpcConnection::MarkCloseAfterWrite()
+{
+    close_after_write_ = true;
+}
+
+
+bool RpcConnection::ShouldCloseAfterWrite() const
+{
+    return close_after_write_;
+}
+
+
 
 RpcConnection::RpcConnection(
     RpcConnection&& other
@@ -187,9 +213,13 @@ RpcConnection::RpcConnection(
     :
     fd_(other.fd_),
     input_buffer_(std::move(other.input_buffer_)),
-    output_buffer_(std::move(other.output_buffer_))
+    output_buffer_(std::move(other.output_buffer_)),
+    peer_read_closed_(other.peer_read_closed_),
+    close_after_write_(other.close_after_write_)
 {
     other.fd_ = -1;
+    other.peer_read_closed_ = true;
+    other.close_after_write_ = true;
 }
 
 
@@ -212,7 +242,15 @@ RpcConnection& RpcConnection::operator=(
         output_buffer_ =
             std::move(other.output_buffer_);
 
+        peer_read_closed_ =
+            other.peer_read_closed_;
+
+        close_after_write_ =
+            other.close_after_write_;
+
         other.fd_ = -1;
+        other.peer_read_closed_ = true;
+        other.close_after_write_ = true;
     }
 
     return *this;

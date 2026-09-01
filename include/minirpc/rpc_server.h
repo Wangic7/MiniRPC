@@ -50,37 +50,30 @@ FrameStatus TryExtractRequestPacket(
 
     bool HandleClient(RpcConnection& connection);
     bool HandleClientEvent(
-    int client_fd,
-    uint32_t events
-);
-
-bool HandleWriteEvent(
-    int client_fd
-);
-
-bool ProcessRequest(
-    RpcConnection& connection,
-    const std::string& request_packet
-);
-
-
-    bool RejectOverloadedClient(int client_fd);
-    bool SendErrorResponse(
-     int client_fd,
-     uint64_t request_id,
-     minirpc::RpcErrorCode error_code,
-     const std::string& message
-); 
-    static bool RecvAll(
-        int sockfd,
-        void* buffer,
-        size_t length
+        int client_fd,
+        uint32_t events
     );
 
-    static bool SendAll(
-        int sockfd,
-        const void* buffer,
-        size_t length
+    bool HandleWriteEvent(
+        int client_fd
+    );
+
+    bool ProcessRequest(
+        RpcConnection& connection,
+        const std::string& request_packet
+    );
+
+    bool UpdateConnectionEvents(
+        RpcConnection& connection
+    );
+
+    void CloseConnection(int client_fd);
+
+    bool SendErrorResponse(
+        RpcConnection& connection,
+        uint64_t request_id,
+        minirpc::RpcErrorCode error_code,
+        const std::string& message
     );
 
 private:

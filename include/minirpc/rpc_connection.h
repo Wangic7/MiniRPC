@@ -58,6 +58,14 @@ RpcConnection& operator=(
 
     bool FlushOutput();
 
+    void MarkPeerReadClosed();
+
+    bool IsPeerReadClosed() const;
+
+    void MarkCloseAfterWrite();
+
+    bool ShouldCloseAfterWrite() const;
+
 
 private:
     int fd_;
@@ -65,4 +73,8 @@ private:
     RpcBuffer input_buffer_;
 
     RpcBuffer output_buffer_;
+
+    bool peer_read_closed_;
+
+    bool close_after_write_;
 };

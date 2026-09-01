@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <utility>
-#include <sys/time.h>
 
 #include "rpc_header.pb.h"
 
@@ -41,66 +40,8 @@ void RpcServer::RegisterMethod(
     );
 }
 
-bool RpcServer::RecvAll(
-    int sockfd,
-    void* buffer,
-    size_t length)
-{
-    char* data = static_cast<char*>(buffer);
-    size_t received = 0;
-
-    while (received < length)
-    {
-        ssize_t n = recv(
-            sockfd,
-            data + received,
-            length - received,
-            0
-        );
-
-        if (n <= 0)
-        {
-            return false;
-        }
-
-        received += static_cast<size_t>(n);
-    }
-
-    return true;
-}
-
-bool RpcServer::SendAll(
-    int sockfd,
-    const void* buffer,
-    size_t length)
-{
-    const char* data =
-        static_cast<const char*>(buffer);
-
-    size_t sent = 0;
-
-    while (sent < length)
-    {
-        ssize_t n = send(
-            sockfd,
-            data + sent,
-            length - sent,
-            MSG_NOSIGNAL//客户端提前断开时，Server 不会因为 SIGPIPE 被直接杀掉
-        );
-
-        if (n <= 0)
-        {
-            return false;
-        }
-
-        sent += static_cast<size_t>(n);
-    }
-
-    return true;
-}
-
 bool RpcServer::SendErrorResponse(
-    int client_fd,
+    RpcConnection& connection,
     uint64_t request_id,
     minirpc::RpcErrorCode error_code,
     const std::string& message)
@@ -143,11 +84,12 @@ bool RpcServer::SendErrorResponse(
     }
 
 
-    return SendAll(
-        client_fd,
+    connection.OutputBuffer().Append(
         response_packet.data(),
         response_packet.size()
     );
+
+    return true;
 }
 
 RpcServer::FrameStatus
@@ -159,10 +101,6 @@ RpcServer::TryExtractRequestPacket(
         connection.InputBuffer();
 
 
-
-
-    int client_fd =
-        connection.Fd();
 
 
     // 1. 还没有收到完整的 header_size
@@ -189,8 +127,10 @@ RpcServer::TryExtractRequestPacket(
         header_size >
             minirpc::MAX_HEADER_SIZE)
     {
+        connection.MarkCloseAfterWrite();
+
         SendErrorResponse(
-            client_fd,
+            connection,
             0,
             minirpc::RPC_BAD_REQUEST,
             "Invalid header size"
@@ -221,8 +161,10 @@ RpcServer::TryExtractRequestPacket(
             static_cast<int>(
                 header_size)))
     {
+        connection.MarkCloseAfterWrite();
+
         SendErrorResponse(
-            client_fd,
+            connection,
             0,
             minirpc::RPC_BAD_REQUEST,
             "Failed to parse RPC header"
@@ -235,8 +177,10 @@ RpcServer::TryExtractRequestPacket(
     if (framing_header.args_size()
         > minirpc::MAX_PAYLOAD_SIZE)
     {
+        connection.MarkCloseAfterWrite();
+
         SendErrorResponse(
-            client_fd,
+            connection,
             framing_header.request_id(),
             minirpc::RPC_BAD_REQUEST,
             "Payload too large"
@@ -294,16 +238,48 @@ bool RpcServer::HandleWriteEvent(
         return false;
     }
 
+    return true;
+}
 
-    if (!connection.HasOutput())
+
+bool RpcServer::UpdateConnectionEvents(
+    RpcConnection& connection
+)
+{
+    uint32_t events = 0;
+
+    if (!connection.IsPeerReadClosed() &&
+        !connection.ShouldCloseAfterWrite())
     {
-        epoller_.Modify(
-            client_fd,
-            EPOLLIN
-        );
+        events |= EPOLLIN | EPOLLRDHUP;
     }
 
-    return true;
+    if (connection.HasOutput())
+    {
+        events |= EPOLLOUT;
+    }
+
+    return epoller_.Modify(
+        connection.Fd(),
+        events
+    );
+}
+
+
+void RpcServer::CloseConnection(
+    int client_fd)
+{
+    auto it = connections_.find(client_fd);
+
+    if (it == connections_.end())
+    {
+        return;
+    }
+
+    epoller_.Delete(client_fd);
+
+    // RpcConnection owns the fd. Erasing it closes the descriptor exactly once.
+    connections_.erase(it);
 }
 
 
@@ -326,24 +302,41 @@ bool RpcServer::HandleClientEvent(
     RpcConnection& connection =
         *(it->second);
 
-            if (events & (EPOLLHUP | EPOLLERR))
+    if (events & EPOLLERR)
     {
-        epoller_.Remove(
-            client_fd
-        );
-
-        connections_.erase(
-            client_fd
-        );
-
-        close(client_fd);
-
         return false;
     }
 
+    if (events & (EPOLLIN | EPOLLRDHUP | EPOLLHUP))
+    {
+        if (!HandleClient(connection))
+        {
+            return false;
+        }
+    }
 
+    if (events & (EPOLLRDHUP | EPOLLHUP))
+    {
+        connection.MarkPeerReadClosed();
+    }
 
-    return HandleClient(connection);
+    if ((events & EPOLLOUT) &&
+        connection.HasOutput())
+    {
+        if (!HandleWriteEvent(client_fd))
+        {
+            return false;
+        }
+    }
+
+    if ((connection.IsPeerReadClosed() ||
+         connection.ShouldCloseAfterWrite()) &&
+        !connection.HasOutput())
+    {
+        return false;
+    }
+
+    return UpdateConnectionEvents(connection);
 }
 
 bool RpcServer::ProcessRequest(
@@ -351,11 +344,6 @@ bool RpcServer::ProcessRequest(
     const std::string& request_packet
 )
 {
-
-        int client_fd =
-        connection.Fd();
-
-
     minirpc::RpcHeader header;
 
     std::string args_data;
@@ -366,56 +354,56 @@ bool RpcServer::ProcessRequest(
             header,
             args_data))
     {
-        SendErrorResponse(
-            client_fd,
+        connection.MarkCloseAfterWrite();
+
+        return SendErrorResponse(
+            connection,
             0,
             minirpc::RPC_BAD_REQUEST,
             "Failed to decode RPC request"
         );
-
-        return false;
     }
 
 
     if (header.args_size()
         != args_data.size())
     {
-        SendErrorResponse(
-            client_fd,
+        connection.MarkCloseAfterWrite();
+
+        return SendErrorResponse(
+            connection,
             header.request_id(),
             minirpc::RPC_BAD_REQUEST,
             "RPC payload size mismatch"
         );
-
-        return false;
     }
 
 
     if (header.magic()
         != minirpc::RPC_MAGIC)
     {
-        SendErrorResponse(
-            client_fd,
+        connection.MarkCloseAfterWrite();
+
+        return SendErrorResponse(
+            connection,
             header.request_id(),
             minirpc::RPC_BAD_REQUEST,
             "Invalid RPC magic"
         );
-
-        return false;
     }
 
 
     if (header.version()
         != minirpc::RPC_VERSION)
     {
-        SendErrorResponse(
-            client_fd,
+        connection.MarkCloseAfterWrite();
+
+        return SendErrorResponse(
+            connection,
             header.request_id(),
             minirpc::RPC_BAD_REQUEST,
             "Unsupported RPC version"
         );
-
-        return false;
     }
 
 
@@ -493,252 +481,93 @@ bool RpcServer::ProcessRequest(
     }
 
 
- connection.OutputBuffer().Append(
-    response_packet.data(),
-    response_packet.size()
-);
+    connection.OutputBuffer().Append(
+        response_packet.data(),
+        response_packet.size()
+    );
 
-if (!epoller_.Modify(
-        client_fd,
-        EPOLLIN | EPOLLOUT))
-{
-    return false;
-}
-
-return true;
+    return true;
 }
 
 bool RpcServer::HandleClient(
     RpcConnection& connection)
 {
+    RpcBuffer& receive_buffer =
+        connection.InputBuffer();
 
+    // Drain a level-triggered socket until it would block. If EOF follows
+    // readable bytes, parse those bytes before deciding whether to close.
+    while (true)
+    {
+        RpcReadStatus read_status =
+            connection.ReadOnce();
 
+        if (read_status == RpcReadStatus::Data)
+        {
+            continue;
+        }
 
-  int client_fd =
-    connection.Fd();
+        if (read_status == RpcReadStatus::WouldBlock)
+        {
+            break;
+        }
 
-RpcBuffer& receive_buffer =
-    connection.InputBuffer();
+        if (read_status == RpcReadStatus::PeerClosed)
+        {
+            connection.MarkPeerReadClosed();
+            break;
+        }
 
-
-RpcReadStatus read_status =
-    connection.ReadOnce();
-
-if (read_status == RpcReadStatus::PeerClosed ||
-    read_status == RpcReadStatus::Error)
-{
-    return false;
-}
-
-
-
-
+        return false;
+    }
 
     while (true)
     {
         std::string request_packet;
 
-        while (true)
+        FrameStatus frame_status =
+            TryExtractRequestPacket(
+                connection,
+                request_packet
+            );
+
+        if (frame_status == FrameStatus::Error)
         {
-            FrameStatus frame_status =
-                TryExtractRequestPacket(
-                    connection,
-                    request_packet
-                );
-
-            if (frame_status ==
-                FrameStatus::Ready)
-            {
-                break;
-            }
-
-            if (frame_status ==
-                FrameStatus::Error)
-            {
-                return false;
-            }
-
-            // NeedMoreData:
-            // 等待下一次 epoll 事件
+            // TryExtractRequestPacket queued the protocol error and marked
+            // the connection to close once the output has been flushed.
             return true;
         }
 
+        if (frame_status == FrameStatus::NeedMoreData)
+        {
+            if (connection.IsPeerReadClosed() &&
+                receive_buffer.ReadableBytes() > 0)
+            {
+                connection.MarkCloseAfterWrite();
 
-if (!ProcessRequest(
-        connection,
-        request_packet))
-{
-    return false;
-}
-    }
-}
+                return SendErrorResponse(
+                    connection,
+                    0,
+                    minirpc::RPC_BAD_REQUEST,
+                    "Truncated RPC request"
+                );
+            }
 
-bool RpcServer::RejectOverloadedClient(
-    int client_fd)
-{
-    // 拒绝路径不能长时间阻塞 accept 线程
-    timeval timeout{};
+            return true;
+        }
 
-    timeout.tv_sec = 0;
-    timeout.tv_usec = 200000;  // 200 ms
-
-    setsockopt(
-        client_fd,
-        SOL_SOCKET,
-        SO_RCVTIMEO,
-        &timeout,
-        sizeof(timeout)
-    );
-
-    // =================================
-    // 读取 Request Header 长度
-    // =================================
-
-    uint32_t network_header_size = 0;
-
-    if (!RecvAll(
-            client_fd,
-            &network_header_size,
-            sizeof(network_header_size)))
-    {
-        return false;
-    }
-
-    uint32_t header_size =
-        ntohl(network_header_size);
-
-    // 防止异常客户端要求分配巨大内存
-    constexpr uint32_t kMaxHeaderSize =
-        64 * 1024;
-
-    if (header_size == 0 ||
-        header_size > kMaxHeaderSize)
-    {
-        return false;
-    }
-
-    // =================================
-    // 读取并解析 RpcHeader
-    // =================================
-
-    std::string header_data(
-        header_size,
-        '\0'
-    );
-
-    if (!RecvAll(
-            client_fd,
-            header_data.data(),
-            header_size))
-    {
-        return false;
-    }
-
-
-
-    minirpc::RpcHeader header;
-
-if (!header.ParseFromString(header_data))
-{
-    std::cerr
-        << "RpcHeader Parse failed, size="
-        << header_data.size()
-        << std::endl;
-
-    return false;
-}
-
-
-    // =================================
-    // 把业务参数读掉，但不执行
-    // =================================
-
-    constexpr uint32_t kMaxArgsSize =
-        1024 * 1024;
-
-    if (header.args_size() >
-        kMaxArgsSize)
-    {
-        return false;
-    }
-
-    std::string discarded_args(
-        header.args_size(),
-        '\0'
-    );
-
-    if (!discarded_args.empty())
-    {
-        if (!RecvAll(
-                client_fd,
-                discarded_args.data(),
-                discarded_args.size()))
+        if (!ProcessRequest(
+                connection,
+                request_packet))
         {
             return false;
         }
+
+        if (connection.ShouldCloseAfterWrite())
+        {
+            return true;
+        }
     }
-
-    // =================================
-    // 构造 SERVER_BUSY Response
-    // =================================
-
-    minirpc::RpcResponseHeader response_header;
-
-    response_header.set_request_id(
-        header.request_id()
-    );
-
-    response_header.set_error_code(
-        minirpc::RPC_SERVER_BUSY
-    );
-
-    response_header.set_error_message(
-        "Server is busy"
-    );
-
-    response_header.set_payload_size(0);
-
-    std::string response_header_data;
-
-    if (!response_header.SerializeToString(
-            &response_header_data))
-    {
-        return false;
-    }
-
-    // =================================
-    // 发送 Response Header 长度
-    // =================================
-
-    uint32_t response_header_size =
-        static_cast<uint32_t>(
-            response_header_data.size()
-        );
-
-    uint32_t network_response_header_size =
-        htonl(response_header_size);
-
-    if (!SendAll(
-            client_fd,
-            &network_response_header_size,
-            sizeof(network_response_header_size)))
-    {
-        return false;
-    }
-
-    // =================================
-    // 发送 Response Header
-    // =================================
-
-    if (!SendAll(
-            client_fd,
-            response_header_data.data(),
-            response_header_data.size()))
-    {
-        return false;
-    }
-
-    return true;
 }
 
 bool RpcServer::Start(uint16_t port)
@@ -838,32 +667,41 @@ bool RpcServer::Start(uint16_t port)
              i < ready;
              ++i)
         {
-          const epoll_event& event =
-    epoller_.Event(
-        static_cast<std::size_t>(i)
-    );
+            const epoll_event& event =
+                epoller_.Event(
+                    static_cast<std::size_t>(i)
+                );
 
+            if (event.data.fd != server_fd)
+            {
+                if (!HandleClientEvent(
+                        event.data.fd,
+                        event.events))
+                {
+                    CloseConnection(event.data.fd);
+                }
 
+                continue;
+            }
 
-if (event.data.fd != server_fd)
-{
-    if (event.events & EPOLLOUT)
-    {
-        HandleWriteEvent(
-            event.data.fd
-        );
-    }
+            if (event.events & (EPOLLERR | EPOLLHUP))
+            {
+                std::cerr
+                    << "Server socket epoll error"
+                    << std::endl;
 
-    if (event.events & EPOLLIN)
-    {
-        HandleClientEvent(
-            event.data.fd,
-            event.events
-        );
-    }
+                epoller_.Delete(server_fd);
+                close(server_fd);
 
-    continue;
-}
+                while (!connections_.empty())
+                {
+                    CloseConnection(
+                        connections_.begin()->first
+                    );
+                }
+
+                return false;
+            }
 
 
 
@@ -903,28 +741,28 @@ if (event.data.fd != server_fd)
 );
 
 
-if (!connection.SetNonBlocking())
-{
-    std::cerr
-        << "Failed to set non-blocking"
-        << std::endl;
+            if (!connection.SetNonBlocking())
+            {
+                std::cerr
+                    << "Failed to set non-blocking"
+                    << std::endl;
 
-    close(client_fd);
-    continue;
-}
+                // The local RpcConnection owns and closes client_fd.
+                continue;
+            }
 
 
-if (!epoller_.Add(
-        client_fd,
-        EPOLLIN))
-{
-    std::cerr
-        << "Failed to add client fd to epoll"
-        << std::endl;
+            if (!epoller_.Add(
+                    client_fd,
+                    EPOLLIN | EPOLLRDHUP))
+            {
+                std::cerr
+                    << "Failed to add client fd to epoll"
+                    << std::endl;
 
-    close(client_fd);
-    continue;
-}
+                // The local RpcConnection owns and closes client_fd.
+                continue;
+            }
 
 
 connections_.emplace(
@@ -943,7 +781,15 @@ std::cout
     }
 
 
+    epoller_.Delete(server_fd);
     close(server_fd);
+
+    while (!connections_.empty())
+    {
+        CloseConnection(
+            connections_.begin()->first
+        );
+    }
 
     return false;
 }
