@@ -158,6 +158,9 @@ RpcServer::TryExtractRequestPacket(
     RpcBuffer& receive_buffer =
         connection.InputBuffer();
 
+
+
+
     int client_fd =
         connection.Fd();
 
@@ -462,52 +465,24 @@ bool RpcServer::HandleClient(
 
 
 
-    int client_fd =
-        connection.Fd();
+  int client_fd =
+    connection.Fd();
 
-    RpcBuffer& receive_buffer =
-        connection.InputBuffer();
+RpcBuffer& receive_buffer =
+    connection.InputBuffer();
 
-    char temp_buffer[8192];
 
-    auto ReadMoreData = [&]() -> bool
-    {
-        ssize_t n = recv(
-            client_fd,
-            temp_buffer,
-            sizeof(temp_buffer),
-            0
-        );
+RpcReadStatus read_status =
+    connection.ReadOnce();
 
-if (n < 0)
-{
-    if (errno == EINTR)
-    {
-        return true;
-    }
-
-if (errno == EAGAIN ||
-    errno == EWOULDBLOCK)
+if (read_status == RpcReadStatus::PeerClosed ||
+    read_status == RpcReadStatus::Error)
 {
     return false;
 }
 
-    return false;
-}
 
 
-if (n == 0)
-{
-    return false;
-}
-
-        receive_buffer.Append(
-            temp_buffer,
-            static_cast<std::size_t>(n)
-        );
-
-        return true;
-    };
 
 
     while (true)
@@ -535,12 +510,8 @@ if (n == 0)
             }
 
             // NeedMoreData:
-            // 当前仍是阻塞版本，
-            // 所以继续从 socket 读取。
-            if (!ReadMoreData())
-            {
-                return false;
-            }
+            // 等待下一次 epoll 事件
+            return true;
         }
 
 
