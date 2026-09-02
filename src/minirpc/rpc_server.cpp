@@ -2,8 +2,11 @@
 #include <minirpc/rpc_server.h>
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <iostream>
+#include <stdexcept>
 #include <string>
+#include <sys/eventfd.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <utility>
@@ -19,14 +22,112 @@
 
 #include <minirpc/epoller.h>
 
+
+class RpcEventFd
+{
+public:
+    RpcEventFd()
+        : fd_(eventfd(
+              0,
+              EFD_NONBLOCK | EFD_CLOEXEC))
+    {
+        if (fd_ < 0)
+        {
+            throw std::runtime_error(
+                "eventfd() failed"
+            );
+        }
+    }
+
+    ~RpcEventFd()
+    {
+        close(fd_);
+    }
+
+    RpcEventFd(const RpcEventFd&) = delete;
+    RpcEventFd& operator=(const RpcEventFd&) = delete;
+
+    int Fd() const
+    {
+        return fd_;
+    }
+
+    bool Notify() const
+    {
+        uint64_t value = 1;
+
+        while (true)
+        {
+            ssize_t written = write(
+                fd_,
+                &value,
+                sizeof(value)
+            );
+
+            if (written == static_cast<ssize_t>(sizeof(value)))
+            {
+                return true;
+            }
+
+            if (written < 0 && errno == EINTR)
+            {
+                continue;
+            }
+
+            // EAGAIN means the counter is already saturated and readable,
+            // so the EventLoop is guaranteed to receive a wakeup.
+            return written < 0 && errno == EAGAIN;
+        }
+    }
+
+    bool Drain() const
+    {
+        uint64_t value = 0;
+
+        while (true)
+        {
+            ssize_t received = read(
+                fd_,
+                &value,
+                sizeof(value)
+            );
+
+            if (received == static_cast<ssize_t>(sizeof(value)))
+            {
+                return true;
+            }
+
+            if (received < 0 && errno == EINTR)
+            {
+                continue;
+            }
+
+            // A coalesced/stale readiness notification may already have
+            // been drained by an earlier event in the same batch.
+            return received < 0 &&
+                (errno == EAGAIN || errno == EWOULDBLOCK);
+        }
+    }
+
+private:
+    int fd_;
+};
+
+
 RpcServer::RpcServer(
     std::size_t worker_count,
     std::size_t max_queue_size)
-    : thread_pool_(
+    : event_fd_(
+          std::make_unique<RpcEventFd>()),
+      thread_pool_(
           worker_count,
-          max_queue_size)
+          max_queue_size),
+      next_connection_id_(1)
 {
 }
+
+
+RpcServer::~RpcServer() = default;
 
 void RpcServer::RegisterMethod(
     const std::string& service_name,
@@ -251,7 +352,12 @@ bool RpcServer::UpdateConnectionEvents(
     if (!connection.IsPeerReadClosed() &&
         !connection.ShouldCloseAfterWrite())
     {
-        events |= EPOLLIN | EPOLLRDHUP;
+        events |= EPOLLRDHUP;
+
+        if (!connection.IsProcessing())
+        {
+            events |= EPOLLIN;
+        }
     }
 
     if (connection.HasOutput())
@@ -320,6 +426,14 @@ bool RpcServer::HandleClientEvent(
         connection.MarkPeerReadClosed();
     }
 
+    if ((events & EPOLLHUP) &&
+        connection.IsProcessing())
+    {
+        // A full hangup cannot receive the worker response. Close now and
+        // let the later completion be discarded by connection_id.
+        return false;
+    }
+
     if ((events & EPOLLOUT) &&
         connection.HasOutput())
     {
@@ -331,7 +445,8 @@ bool RpcServer::HandleClientEvent(
 
     if ((connection.IsPeerReadClosed() ||
          connection.ShouldCloseAfterWrite()) &&
-        !connection.HasOutput())
+        !connection.HasOutput() &&
+        !connection.IsProcessing())
     {
         return false;
     }
@@ -407,6 +522,42 @@ bool RpcServer::ProcessRequest(
     }
 
 
+    uint64_t request_id = header.request_id();
+
+    RpcTask task{
+        connection.Id(),
+        std::move(header),
+        std::move(args_data)
+    };
+
+    bool submitted = thread_pool_.Submit(
+        [this, task = std::move(task)]() mutable
+        {
+            ExecuteRpcTask(std::move(task));
+        }
+    );
+
+    if (!submitted)
+    {
+        connection.MarkCloseAfterWrite();
+
+        return SendErrorResponse(
+            connection,
+            request_id,
+            minirpc::RPC_SERVER_BUSY,
+            "Server is busy"
+        );
+    }
+
+    connection.SetProcessing(true);
+
+    return true;
+}
+
+
+void RpcServer::ExecuteRpcTask(
+    RpcTask task)
+{
     std::string response_data;
 
     minirpc::RpcErrorCode error_code =
@@ -414,36 +565,42 @@ bool RpcServer::ProcessRequest(
 
     std::string error_message;
 
-
-    if (!dispatcher_.HasMethod(
-            header.service_name(),
-            header.method_name()))
+    try
     {
-        error_code =
-            minirpc::RPC_METHOD_NOT_FOUND;
+        if (!dispatcher_.HasMethod(
+                task.header.service_name(),
+                task.header.method_name()))
+        {
+            error_code =
+                minirpc::RPC_METHOD_NOT_FOUND;
 
-        error_message =
-            "RPC method not found";
+            error_message =
+                "RPC method not found";
+        }
+        else if (!dispatcher_.Dispatch(
+                    task.header.service_name(),
+                    task.header.method_name(),
+                    task.args_data,
+                    response_data))
+        {
+            error_code =
+                minirpc::RPC_BAD_REQUEST;
+
+            error_message =
+                "RPC request execution failed";
+        }
     }
-    else if (!dispatcher_.Dispatch(
-                header.service_name(),
-                header.method_name(),
-                args_data,
-                response_data))
+    catch (...)
     {
-        error_code =
-            minirpc::RPC_BAD_REQUEST;
-
-        error_message =
-            "RPC request execution failed";
+        response_data.clear();
+        error_code = minirpc::RPC_INTERNAL_ERROR;
+        error_message = "RPC handler threw an exception";
     }
-
 
     minirpc::RpcResponseHeader response_header;
 
-
     response_header.set_request_id(
-        header.request_id()
+        task.header.request_id()
     );
 
     response_header.set_error_code(
@@ -468,30 +625,107 @@ bool RpcServer::ProcessRequest(
         minirpc::RPC_VERSION
     );
 
-
     std::string response_packet;
-
 
     if (!RpcCodec::EncodeResponse(
             response_header,
             response_data,
             response_packet))
     {
-        return false;
+        response_packet.clear();
     }
 
+    CompletedResponse completed{
+        task.connection_id,
+        std::move(response_packet)
+    };
 
-    connection.OutputBuffer().Append(
-        response_packet.data(),
-        response_packet.size()
-    );
+    {
+        std::lock_guard<std::mutex> lock(
+            completion_mutex_
+        );
 
-    return true;
+        completion_queue_.push(
+            std::move(completed)
+        );
+    }
+
+    event_fd_->Notify();
+}
+
+
+void RpcServer::ProcessCompletedResponses()
+{
+    std::queue<CompletedResponse> completed;
+
+    {
+        std::lock_guard<std::mutex> lock(
+            completion_mutex_
+        );
+
+        completed.swap(completion_queue_);
+    }
+
+    while (!completed.empty())
+    {
+        CompletedResponse response =
+            std::move(completed.front());
+
+        completed.pop();
+
+        auto connection_it =
+            connections_.end();
+
+        for (auto it = connections_.begin();
+             it != connections_.end();
+             ++it)
+        {
+            if (it->second->Id() ==
+                response.connection_id)
+            {
+                connection_it = it;
+                break;
+            }
+        }
+
+        if (connection_it == connections_.end())
+        {
+            continue;
+        }
+
+        RpcConnection& connection =
+            *(connection_it->second);
+
+        connection.SetProcessing(false);
+
+        int client_fd = connection.Fd();
+
+        if (response.response_packet.empty())
+        {
+            CloseConnection(client_fd);
+            continue;
+        }
+
+        connection.OutputBuffer().Append(
+            response.response_packet.data(),
+            response.response_packet.size()
+        );
+
+        if (!UpdateConnectionEvents(connection))
+        {
+            CloseConnection(client_fd);
+        }
+    }
 }
 
 bool RpcServer::HandleClient(
     RpcConnection& connection)
 {
+    if (connection.IsProcessing())
+    {
+        return true;
+    }
+
     RpcBuffer& receive_buffer =
         connection.InputBuffer();
 
@@ -564,6 +798,11 @@ bool RpcServer::HandleClient(
         }
 
         if (connection.ShouldCloseAfterWrite())
+        {
+            return true;
+        }
+
+        if (connection.IsProcessing())
         {
             return true;
         }
@@ -647,6 +886,20 @@ bool RpcServer::Start(uint16_t port)
         return false;
     }
 
+    if (!epoller_.Add(
+            event_fd_->Fd(),
+            EPOLLIN))
+    {
+        std::cerr
+            << "Failed to add eventfd to epoll"
+            << std::endl;
+
+        epoller_.Delete(server_fd);
+        close(server_fd);
+
+        return false;
+    }
+
 
     while (true)
     {
@@ -672,6 +925,33 @@ bool RpcServer::Start(uint16_t port)
                     static_cast<std::size_t>(i)
                 );
 
+            if (event.data.fd == event_fd_->Fd())
+            {
+                if ((event.events & (EPOLLERR | EPOLLHUP)) ||
+                    !event_fd_->Drain())
+                {
+                    std::cerr
+                        << "eventfd epoll error"
+                        << std::endl;
+
+                    epoller_.Delete(event_fd_->Fd());
+                    epoller_.Delete(server_fd);
+                    close(server_fd);
+
+                    while (!connections_.empty())
+                    {
+                        CloseConnection(
+                            connections_.begin()->first
+                        );
+                    }
+
+                    return false;
+                }
+
+                ProcessCompletedResponses();
+                continue;
+            }
+
             if (event.data.fd != server_fd)
             {
                 if (!HandleClientEvent(
@@ -691,6 +971,7 @@ bool RpcServer::Start(uint16_t port)
                     << std::endl;
 
                 epoller_.Delete(server_fd);
+                epoller_.Delete(event_fd_->Fd());
                 close(server_fd);
 
                 while (!connections_.empty())
@@ -736,9 +1017,14 @@ bool RpcServer::Start(uint16_t port)
             }
 
 
-           RpcConnection connection(
-    client_fd
-);
+            uint64_t connection_id =
+                next_connection_id_++;
+
+            RpcConnection connection(
+                client_fd,
+                connection_id,
+                8192
+            );
 
 
             if (!connection.SetNonBlocking())
@@ -781,6 +1067,7 @@ std::cout
     }
 
 
+    epoller_.Delete(event_fd_->Fd());
     epoller_.Delete(server_fd);
     close(server_fd);
 

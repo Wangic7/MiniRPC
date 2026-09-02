@@ -11,11 +11,25 @@
 RpcConnection::RpcConnection(
     int fd,
     std::size_t buffer_size)
+    : RpcConnection(
+          fd,
+          0,
+          buffer_size)
+{
+}
+
+
+RpcConnection::RpcConnection(
+    int fd,
+    uint64_t connection_id,
+    std::size_t buffer_size)
     : fd_(fd),
+      connection_id_(connection_id),
       input_buffer_(buffer_size),
       output_buffer_(buffer_size),
       peer_read_closed_(false),
-      close_after_write_(false)
+      close_after_write_(false),
+      processing_(false)
 {
 }
 
@@ -29,6 +43,12 @@ RpcConnection::~RpcConnection()
 int RpcConnection::Fd() const
 {
     return fd_;
+}
+
+
+uint64_t RpcConnection::Id() const
+{
+    return connection_id_;
 }
 
 
@@ -206,20 +226,37 @@ bool RpcConnection::ShouldCloseAfterWrite() const
 }
 
 
+bool RpcConnection::IsProcessing() const
+{
+    return processing_;
+}
+
+
+void RpcConnection::SetProcessing(
+    bool processing)
+{
+    processing_ = processing;
+}
+
+
 
 RpcConnection::RpcConnection(
     RpcConnection&& other
 ) noexcept
     :
     fd_(other.fd_),
+    connection_id_(other.connection_id_),
     input_buffer_(std::move(other.input_buffer_)),
     output_buffer_(std::move(other.output_buffer_)),
     peer_read_closed_(other.peer_read_closed_),
-    close_after_write_(other.close_after_write_)
+    close_after_write_(other.close_after_write_),
+    processing_(other.processing_)
 {
     other.fd_ = -1;
+    other.connection_id_ = 0;
     other.peer_read_closed_ = true;
     other.close_after_write_ = true;
+    other.processing_ = false;
 }
 
 
@@ -236,6 +273,8 @@ RpcConnection& RpcConnection::operator=(
 
         fd_ = other.fd_;
 
+        connection_id_ = other.connection_id_;
+
         input_buffer_ =
             std::move(other.input_buffer_);
 
@@ -248,9 +287,14 @@ RpcConnection& RpcConnection::operator=(
         close_after_write_ =
             other.close_after_write_;
 
+        processing_ =
+            other.processing_;
+
         other.fd_ = -1;
+        other.connection_id_ = 0;
         other.peer_read_closed_ = true;
         other.close_after_write_ = true;
+        other.processing_ = false;
     }
 
     return *this;

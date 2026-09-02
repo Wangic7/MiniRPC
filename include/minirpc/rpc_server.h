@@ -1,6 +1,8 @@
 #pragma once
 #include "rpc_header.pb.h"
 #include <cstdint>
+#include <mutex>
+#include <queue>
 #include <string>
 
 #include <minirpc/rpc_dispatcher.h>
@@ -14,6 +16,8 @@
 #include <memory>
 #include "minirpc/epoller.h"
 
+class RpcEventFd;
+
 class RpcServer
 {
 public:
@@ -25,6 +29,8 @@ public:
     std::size_t max_queue_size = 100
     );
 
+    ~RpcServer();
+
 
     void RegisterMethod(
         const std::string& service_name,
@@ -35,6 +41,19 @@ public:
     bool Start(uint16_t port);
 
 private:
+
+    struct RpcTask
+    {
+        uint64_t connection_id;
+        minirpc::RpcHeader header;
+        std::string args_data;
+    };
+
+    struct CompletedResponse
+    {
+        uint64_t connection_id;
+        std::string response_packet;
+    };
 
     enum class FrameStatus
 {
@@ -63,6 +82,10 @@ FrameStatus TryExtractRequestPacket(
         const std::string& request_packet
     );
 
+    void ExecuteRpcTask(RpcTask task);
+
+    void ProcessCompletedResponses();
+
     bool UpdateConnectionEvents(
         RpcConnection& connection
     );
@@ -78,8 +101,17 @@ FrameStatus TryExtractRequestPacket(
 
 private:
     RpcDispatcher dispatcher_;
+
+    // Worker completion dependencies must outlive thread_pool_.
+    std::queue<CompletedResponse> completion_queue_;
+    std::mutex completion_mutex_;
+
+    std::unique_ptr<RpcEventFd> event_fd_;
+
     ThreadPool thread_pool_;
     Epoller epoller_;
+
+    uint64_t next_connection_id_;
 
         std::unordered_map<
         int,
