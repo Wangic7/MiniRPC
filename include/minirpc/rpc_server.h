@@ -113,7 +113,9 @@ private:
 
     uint64_t next_connection_id_;
 
-        std::unordered_map<
+    std::unordered_map<uint64_t, int> connection_index_;
+
+    std::unordered_map<
         int,
         std::unique_ptr<RpcConnection>
     > connections_;

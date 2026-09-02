@@ -384,6 +384,8 @@ void RpcServer::CloseConnection(
 
     epoller_.Delete(client_fd);
 
+    connection_index_.erase(it->second->Id());
+
     // RpcConnection owns the fd. Erasing it closes the descriptor exactly once.
     connections_.erase(it);
 }
@@ -539,8 +541,6 @@ bool RpcServer::ProcessRequest(
 
     if (!submitted)
     {
-        connection.MarkCloseAfterWrite();
-
         return SendErrorResponse(
             connection,
             request_id,
@@ -673,23 +673,27 @@ void RpcServer::ProcessCompletedResponses()
 
         completed.pop();
 
-        auto connection_it =
-            connections_.end();
+        auto index_it = connection_index_.find(
+            response.connection_id
+        );
 
-        for (auto it = connections_.begin();
-             it != connections_.end();
-             ++it)
+        if (index_it == connection_index_.end())
         {
-            if (it->second->Id() ==
-                response.connection_id)
-            {
-                connection_it = it;
-                break;
-            }
+            continue;
         }
 
-        if (connection_it == connections_.end())
+        int client_fd = index_it->second;
+
+        auto connection_it = connections_.find(
+            client_fd
+        );
+
+        if (connection_it == connections_.end() ||
+            connection_it->second->Id() !=
+                response.connection_id)
         {
+            // Keep the secondary index self-healing if invariants are broken.
+            connection_index_.erase(index_it);
             continue;
         }
 
@@ -697,8 +701,6 @@ void RpcServer::ProcessCompletedResponses()
             *(connection_it->second);
 
         connection.SetProcessing(false);
-
-        int client_fd = connection.Fd();
 
         if (response.response_packet.empty())
         {
@@ -1051,12 +1053,31 @@ bool RpcServer::Start(uint16_t port)
             }
 
 
-connections_.emplace(
-    client_fd,
-    std::make_unique<RpcConnection>(
-        std::move(connection)
-    )
-);
+            auto [connection_it, inserted] =
+                connections_.emplace(
+                    client_fd,
+                    std::make_unique<RpcConnection>(
+                        std::move(connection)
+                    )
+                );
+
+            if (!inserted)
+            {
+                epoller_.Delete(client_fd);
+                continue;
+            }
+
+            bool indexed = connection_index_.emplace(
+                connection_id,
+                client_fd
+            ).second;
+
+            if (!indexed)
+            {
+                epoller_.Delete(client_fd);
+                connections_.erase(connection_it);
+                continue;
+            }
 
 
 std::cout
