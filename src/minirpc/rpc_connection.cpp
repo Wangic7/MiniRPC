@@ -1,4 +1,5 @@
 #include <minirpc/rpc_connection.h>
+#include <minirpc/logger.h>
 
 #include <unistd.h>
 
@@ -61,6 +62,8 @@ bool RpcConnection::SetNonBlocking()
 {
     if (fd_ < 0)
     {
+        LOG_ERROR()
+            << "Cannot set non-blocking mode on invalid fd";
         return false;
     }
 
@@ -73,6 +76,11 @@ bool RpcConnection::SetNonBlocking()
 
     if (flags < 0)
     {
+        LOG_ERROR()
+            << "fcntl(F_GETFL) failed for fd="
+            << fd_
+            << ", errno="
+            << errno;
         return false;
     }
 
@@ -81,11 +89,22 @@ bool RpcConnection::SetNonBlocking()
         return true;
     }
 
-    return fcntl(
+    bool updated = fcntl(
         fd_,
         F_SETFL,
         flags | O_NONBLOCK
     ) == 0;
+
+    if (!updated)
+    {
+        LOG_ERROR()
+            << "fcntl(F_SETFL) failed for fd="
+            << fd_
+            << ", errno="
+            << errno;
+    }
+
+    return updated;
 }
 
 RpcReadStatus RpcConnection::ReadOnce()
@@ -128,6 +147,12 @@ RpcReadStatus RpcConnection::ReadOnce()
             return RpcReadStatus::WouldBlock;
         }
 
+        LOG_WARN()
+            << "recv() failed for fd="
+            << fd_
+            << ", errno="
+            << errno;
+
         return RpcReadStatus::Error;
     }
 }
@@ -137,6 +162,12 @@ void RpcConnection::Close()
 {
     if (fd_ >= 0)
     {
+        LOG_DEBUG()
+            << "Closing connection id="
+            << connection_id_
+            << ", fd="
+            << fd_;
+
         close(fd_);
 
         fd_ = -1;
@@ -185,11 +216,20 @@ bool RpcConnection::FlushOutput()
                 return true;
             }
 
+            LOG_WARN()
+                << "send() failed for fd="
+                << fd_
+                << ", errno="
+                << errno;
+
             return false;
         }
 
         if (n == 0)
         {
+            LOG_WARN()
+                << "send() returned zero for fd="
+                << fd_;
             return false;
         }
 

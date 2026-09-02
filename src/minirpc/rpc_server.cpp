@@ -3,7 +3,6 @@
 
 #include <arpa/inet.h>
 #include <cerrno>
-#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <sys/eventfd.h>
@@ -21,6 +20,7 @@
 #include <minirpc/rpc_connection.h>
 
 #include <minirpc/epoller.h>
+#include <minirpc/logger.h>
 
 
 class RpcEventFd
@@ -146,9 +146,8 @@ void RpcServer::Stop()
     {
         if (!event_fd_->Notify())
         {
-            std::cerr
-                << "Failed to notify EventLoop during stop"
-                << std::endl;
+            LOG_ERROR()
+                << "Failed to notify EventLoop during stop";
         }
     }
 }
@@ -844,9 +843,8 @@ bool RpcServer::Start(uint16_t port)
             true,
             std::memory_order_acq_rel))
     {
-        std::cerr
-            << "RpcServer is already running"
-            << std::endl;
+        LOG_ERROR()
+            << "RpcServer is already running";
 
         return false;
     }
@@ -863,9 +861,8 @@ bool RpcServer::Start(uint16_t port)
             std::memory_order_release
         );
 
-        std::cerr
-            << "RpcServer cannot be restarted"
-            << std::endl;
+        LOG_ERROR()
+            << "RpcServer cannot be restarted";
 
         return false;
     }
@@ -890,8 +887,7 @@ bool RpcServer::Start(uint16_t port)
 
     if (server_fd < 0)
     {
-        std::cerr << "socket() failed"
-                  << std::endl;
+        LOG_ERROR() << "socket() failed";
 
         return fail_start();
     }
@@ -905,8 +901,7 @@ bool RpcServer::Start(uint16_t port)
             &opt,
             sizeof(opt)) < 0)
     {
-        std::cerr << "setsockopt() failed"
-                  << std::endl;
+        LOG_ERROR() << "setsockopt() failed";
 
         close(server_fd);
         return fail_start();
@@ -925,8 +920,7 @@ bool RpcServer::Start(uint16_t port)
                 &server_addr),
             sizeof(server_addr)) < 0)
     {
-        std::cerr << "bind() failed"
-                  << std::endl;
+        LOG_ERROR() << "bind() failed";
 
         close(server_fd);
         return fail_start();
@@ -934,26 +928,23 @@ bool RpcServer::Start(uint16_t port)
 
     if (listen(server_fd, 5) < 0)
     {
-        std::cerr << "listen() failed"
-                  << std::endl;
+        LOG_ERROR() << "listen() failed";
 
         close(server_fd);
         return fail_start();
     }
 
-    std::cout
+    LOG_INFO()
         << "MiniRPC server listening on port "
         << port
-        << "..."
-        << std::endl;
+        << "...";
 
     if (!epoller_.Add(
             server_fd,
             EPOLLIN))
     {
-        std::cerr
-            << "Failed to add server socket to epoll"
-            << std::endl;
+        LOG_ERROR()
+            << "Failed to add server socket to epoll";
 
         close(server_fd);
 
@@ -964,9 +955,8 @@ bool RpcServer::Start(uint16_t port)
             event_fd_->Fd(),
             EPOLLIN))
     {
-        std::cerr
-            << "Failed to add eventfd to epoll"
-            << std::endl;
+        LOG_ERROR()
+            << "Failed to add eventfd to epoll";
 
         epoller_.Delete(server_fd);
         close(server_fd);
@@ -985,9 +975,7 @@ bool RpcServer::Start(uint16_t port)
 
         if (ready < 0)
         {
-            std::cerr
-                << "epoll_wait() failed"
-                << std::endl;
+            LOG_ERROR() << "epoll_wait() failed";
 
             event_loop_ok = false;
             running_.store(
@@ -1003,9 +991,8 @@ bool RpcServer::Start(uint16_t port)
         {
             if (!event_fd_->Drain())
             {
-                std::cerr
-                    << "eventfd drain failed during stop"
-                    << std::endl;
+                LOG_ERROR()
+                    << "eventfd drain failed during stop";
 
                 event_loop_ok = false;
             }
@@ -1028,9 +1015,7 @@ bool RpcServer::Start(uint16_t port)
                 if ((event.events & (EPOLLERR | EPOLLHUP)) ||
                     !event_fd_->Drain())
                 {
-                    std::cerr
-                        << "eventfd epoll error"
-                        << std::endl;
+                    LOG_ERROR() << "eventfd epoll error";
 
                     event_loop_ok = false;
                     running_.store(
@@ -1065,9 +1050,8 @@ bool RpcServer::Start(uint16_t port)
 
             if (event.events & (EPOLLERR | EPOLLHUP))
             {
-                std::cerr
-                    << "Server socket epoll error"
-                    << std::endl;
+                LOG_ERROR()
+                    << "Server socket epoll error";
 
                 event_loop_ok = false;
                 running_.store(
@@ -1103,9 +1087,7 @@ bool RpcServer::Start(uint16_t port)
 
             if (client_fd < 0)
             {
-                std::cerr
-                    << "accept() failed"
-                    << std::endl;
+                LOG_WARN() << "accept() failed";
 
                 continue;
             }
@@ -1123,9 +1105,9 @@ bool RpcServer::Start(uint16_t port)
 
             if (!connection.SetNonBlocking())
             {
-                std::cerr
-                    << "Failed to set non-blocking"
-                    << std::endl;
+                LOG_ERROR()
+                    << "Failed to set non-blocking for fd="
+                    << client_fd;
 
                 // The local RpcConnection owns and closes client_fd.
                 continue;
@@ -1136,9 +1118,10 @@ bool RpcServer::Start(uint16_t port)
                     client_fd,
                     EPOLLIN | EPOLLRDHUP))
             {
-                std::cerr
-                    << "Failed to add client fd to epoll"
-                    << std::endl;
+                LOG_ERROR()
+                    << "Failed to add client fd="
+                    << client_fd
+                    << " to epoll";
 
                 // The local RpcConnection owns and closes client_fd.
                 continue;
@@ -1172,10 +1155,9 @@ bool RpcServer::Start(uint16_t port)
             }
 
 
-std::cout
-    << "Client connected fd="
-    << client_fd
-    << std::endl;
+            LOG_INFO()
+                << "Client connected fd="
+                << client_fd;
     }
     }
 

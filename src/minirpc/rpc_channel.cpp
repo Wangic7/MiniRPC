@@ -7,7 +7,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <iostream>
 #include <string>
 #include <utility>
 
@@ -20,6 +19,7 @@
 #include <poll.h>
 
 #include <minirpc/rpc_codec.h>
+#include <minirpc/logger.h>
 
 #include <cstring>
 
@@ -57,9 +57,7 @@ bool RpcChannel::Connect()
 
     if(sockfd_ < 0)
     {
-        std::cerr
-            << "socket() failed"
-            << std::endl;
+        LOG_ERROR() << "socket() failed";
 
         return false;
     }
@@ -112,9 +110,9 @@ bool RpcChannel::Connect()
             host_.c_str(),
             &server_addr.sin_addr) <= 0)
     {
-        std::cerr
-            << "Invalid server address"
-            << std::endl;
+        LOG_ERROR()
+            << "Invalid server address: "
+            << host_;
 
         close(sockfd_);
         sockfd_ = -1;
@@ -129,9 +127,11 @@ bool RpcChannel::Connect()
                 &server_addr),
             sizeof(server_addr)) < 0)
     {
-        std::cerr
-            << "connect() failed"
-            << std::endl;
+        LOG_ERROR()
+            << "connect() failed for "
+            << host_
+            << ':'
+            << port_;
 
         close(sockfd_);
         sockfd_ = -1;
@@ -242,9 +242,8 @@ bool RpcChannel::Call(
 
     if(!request.SerializeToString(&args_data))
     {
-        std::cerr
-            << "Failed to serialize RPC request"
-            << std::endl;
+        LOG_ERROR()
+            << "Failed to serialize RPC request";
 
         return false;
     }
@@ -300,9 +299,8 @@ if(!RpcCodec::EncodeRequest(
         args_data,
         packet))
 {
-    std::cerr
-        << "Failed to encode RPC request"
-        << std::endl;
+    LOG_ERROR()
+        << "Failed to encode RPC request";
 
     return false;
 }
@@ -316,9 +314,7 @@ if(!RpcCodec::EncodeRequest(
             packet.data(),
             packet.size()))
     {
-        std::cerr
-            << "RPC send failed"
-            << std::endl;
+        LOG_ERROR() << "RPC send failed";
 
 
         close(sockfd_);
@@ -347,11 +343,10 @@ auto ReadMoreData = [&]() -> bool
 
     if (n <= 0)
     {
-        std::cerr
+        LOG_ERROR()
             << "RPC receive failed or timed out after "
             << timeout_ms_
-            << " ms"
-            << std::endl;
+            << " ms";
 
         close(sockfd_);
         sockfd_ = -1;
@@ -403,9 +398,8 @@ if (response_header_size == 0 ||
     response_header_size
         > minirpc::MAX_HEADER_SIZE)
 {
-    std::cerr
-        << "Invalid RPC response header size"
-        << std::endl;
+    LOG_ERROR()
+        << "Invalid RPC response header size";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -445,9 +439,8 @@ if (!framing_header.ParseFromArray(
         static_cast<int>(
             response_header_size)))
 {
-    std::cerr
-        << "Failed to parse response header"
-        << std::endl;
+    LOG_ERROR()
+        << "Failed to parse response header";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -461,9 +454,8 @@ if (!framing_header.ParseFromArray(
 if (framing_header.payload_size()
     > minirpc::MAX_PAYLOAD_SIZE)
 {
-    std::cerr
-        << "RPC response payload too large"
-        << std::endl;
+    LOG_ERROR()
+        << "RPC response payload too large";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -518,9 +510,8 @@ if (!RpcCodec::DecodeResponse(
         response_header,
         response_data))
 {
-    std::cerr
-        << "Failed to decode RPC response"
-        << std::endl;
+    LOG_ERROR()
+        << "Failed to decode RPC response";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -534,9 +525,8 @@ if (!RpcCodec::DecodeResponse(
 if (response_header.payload_size()
     != response_data.size())
 {
-    std::cerr
-        << "RPC response payload size mismatch"
-        << std::endl;
+    LOG_ERROR()
+        << "RPC response payload size mismatch";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -550,9 +540,8 @@ if (response_header.payload_size()
 if(response_header.payload_size()
     != response_data.size())
 {
-    std::cerr
-        << "RPC response payload size mismatch"
-        << std::endl;
+    LOG_ERROR()
+        << "RPC response payload size mismatch";
 
     close(sockfd_);
     sockfd_ = -1;
@@ -567,9 +556,8 @@ if(response_header.payload_size()
     if(response_header.request_id()
         != request_id)
     {
-        std::cerr
-            << "RPC request_id mismatch"
-            << std::endl;
+        LOG_ERROR()
+            << "RPC request_id mismatch";
 
 
         return false;
@@ -582,12 +570,11 @@ if(response_header.payload_size()
     if(response_header.error_code()
         != minirpc::RPC_OK)
     {
-        std::cerr
+        LOG_ERROR()
             << "RPC error: "
             << response_header.error_code()
             << " - "
-            << response_header.error_message()
-            << std::endl;
+            << response_header.error_message();
 
 
         return false;
@@ -604,9 +591,8 @@ if(response_header.payload_size()
     if(!response.ParseFromString(
             response_data))
     {
-        std::cerr
-            << "Failed to parse RPC response"
-            << std::endl;
+        LOG_ERROR()
+            << "Failed to parse RPC response";
 
         return false;
     }

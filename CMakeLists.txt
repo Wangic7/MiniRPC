@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 
 project(MiniRPC LANGUAGES CXX)
 
+enable_testing()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -56,6 +58,7 @@ add_library(
     STATIC
 
     src/minirpc/rpc_server.cpp
+    src/minirpc/logger.cpp
     src/minirpc/rpc_dispatcher.cpp
     src/minirpc/rpc_channel.cpp
     src/minirpc/thread_pool.cpp
@@ -203,6 +206,11 @@ target_link_libraries(
     minirpc
 )
 
+add_test(
+    NAME rpc_buffer_test
+    COMMAND rpc_buffer_test
+)
+
 add_executable(
     epoller_test
     tests/epoller_test.cpp
@@ -213,6 +221,11 @@ target_link_libraries(
     minirpc
 )
 
+add_test(
+    NAME epoller_test
+    COMMAND epoller_test
+)
+
 add_executable(
     rpc_connection_test
     tests/rpc_connection_test.cpp
@@ -221,4 +234,9 @@ add_executable(
 target_link_libraries(
     rpc_connection_test
     minirpc
+)
+
+add_test(
+    NAME rpc_connection_test
+    COMMAND rpc_connection_test
 )
