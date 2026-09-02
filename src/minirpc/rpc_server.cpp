@@ -41,7 +41,11 @@ public:
 
     ~RpcEventFd()
     {
-        close(fd_);
+        if (fd_ >= 0)
+        {
+            close(fd_);
+            fd_ = -1;
+        }
     }
 
     RpcEventFd(const RpcEventFd&) = delete;
@@ -117,7 +121,9 @@ private:
 RpcServer::RpcServer(
     std::size_t worker_count,
     std::size_t max_queue_size)
-    : event_fd_(
+    : running_(false),
+      started_(false),
+      event_fd_(
           std::make_unique<RpcEventFd>()),
       thread_pool_(
           worker_count,
@@ -127,7 +133,25 @@ RpcServer::RpcServer(
 }
 
 
-RpcServer::~RpcServer() = default;
+RpcServer::~RpcServer()
+{
+    Stop();
+}
+
+void RpcServer::Stop()
+{
+    if (running_.exchange(
+            false,
+            std::memory_order_acq_rel))
+    {
+        if (!event_fd_->Notify())
+        {
+            std::cerr
+                << "Failed to notify EventLoop during stop"
+                << std::endl;
+        }
+    }
+}
 
 void RpcServer::RegisterMethod(
     const std::string& service_name,
@@ -813,6 +837,54 @@ bool RpcServer::HandleClient(
 
 bool RpcServer::Start(uint16_t port)
 {
+    bool expected = false;
+
+    if (!running_.compare_exchange_strong(
+            expected,
+            true,
+            std::memory_order_acq_rel))
+    {
+        std::cerr
+            << "RpcServer is already running"
+            << std::endl;
+
+        return false;
+    }
+
+    bool first_start = false;
+
+    if (!started_.compare_exchange_strong(
+            first_start,
+            true,
+            std::memory_order_acq_rel))
+    {
+        running_.store(
+            false,
+            std::memory_order_release
+        );
+
+        std::cerr
+            << "RpcServer cannot be restarted"
+            << std::endl;
+
+        return false;
+    }
+
+    auto fail_start = [this]()
+    {
+        running_.store(
+            false,
+            std::memory_order_release
+        );
+
+        started_.store(
+            false,
+            std::memory_order_release
+        );
+
+        return false;
+    };
+
     int server_fd =
         socket(AF_INET, SOCK_STREAM, 0);
 
@@ -821,7 +893,7 @@ bool RpcServer::Start(uint16_t port)
         std::cerr << "socket() failed"
                   << std::endl;
 
-        return false;
+        return fail_start();
     }
 
     int opt = 1;
@@ -837,7 +909,7 @@ bool RpcServer::Start(uint16_t port)
                   << std::endl;
 
         close(server_fd);
-        return false;
+        return fail_start();
     }
 
     sockaddr_in server_addr{};
@@ -857,7 +929,7 @@ bool RpcServer::Start(uint16_t port)
                   << std::endl;
 
         close(server_fd);
-        return false;
+        return fail_start();
     }
 
     if (listen(server_fd, 5) < 0)
@@ -866,7 +938,7 @@ bool RpcServer::Start(uint16_t port)
                   << std::endl;
 
         close(server_fd);
-        return false;
+        return fail_start();
     }
 
     std::cout
@@ -885,7 +957,7 @@ bool RpcServer::Start(uint16_t port)
 
         close(server_fd);
 
-        return false;
+        return fail_start();
     }
 
     if (!epoller_.Add(
@@ -899,11 +971,14 @@ bool RpcServer::Start(uint16_t port)
         epoller_.Delete(server_fd);
         close(server_fd);
 
-        return false;
+        return fail_start();
     }
 
 
-    while (true)
+    bool event_loop_ok = true;
+
+    while (running_.load(
+        std::memory_order_acquire))
     {
         int ready =
             epoller_.Wait(-1);
@@ -913,6 +988,27 @@ bool RpcServer::Start(uint16_t port)
             std::cerr
                 << "epoll_wait() failed"
                 << std::endl;
+
+            event_loop_ok = false;
+            running_.store(
+                false,
+                std::memory_order_release
+            );
+
+            break;
+        }
+
+        if (!running_.load(
+                std::memory_order_acquire))
+        {
+            if (!event_fd_->Drain())
+            {
+                std::cerr
+                    << "eventfd drain failed during stop"
+                    << std::endl;
+
+                event_loop_ok = false;
+            }
 
             break;
         }
@@ -936,18 +1032,19 @@ bool RpcServer::Start(uint16_t port)
                         << "eventfd epoll error"
                         << std::endl;
 
-                    epoller_.Delete(event_fd_->Fd());
-                    epoller_.Delete(server_fd);
-                    close(server_fd);
+                    event_loop_ok = false;
+                    running_.store(
+                        false,
+                        std::memory_order_release
+                    );
 
-                    while (!connections_.empty())
-                    {
-                        CloseConnection(
-                            connections_.begin()->first
-                        );
-                    }
+                    break;
+                }
 
-                    return false;
+                if (!running_.load(
+                        std::memory_order_acquire))
+                {
+                    break;
                 }
 
                 ProcessCompletedResponses();
@@ -972,18 +1069,13 @@ bool RpcServer::Start(uint16_t port)
                     << "Server socket epoll error"
                     << std::endl;
 
-                epoller_.Delete(server_fd);
-                epoller_.Delete(event_fd_->Fd());
-                close(server_fd);
+                event_loop_ok = false;
+                running_.store(
+                    false,
+                    std::memory_order_release
+                );
 
-                while (!connections_.empty())
-                {
-                    CloseConnection(
-                        connections_.begin()->first
-                    );
-                }
-
-                return false;
+                break;
             }
 
 
@@ -1088,7 +1180,6 @@ std::cout
     }
 
 
-    epoller_.Delete(event_fd_->Fd());
     epoller_.Delete(server_fd);
     close(server_fd);
 
@@ -1099,5 +1190,26 @@ std::cout
         );
     }
 
-    return false;
+    connections_.clear();
+    connection_index_.clear();
+
+    thread_pool_.Stop();
+
+    epoller_.Delete(event_fd_->Fd());
+
+    {
+        std::lock_guard<std::mutex> lock(
+            completion_mutex_
+        );
+
+        std::queue<CompletedResponse> empty;
+        completion_queue_.swap(empty);
+    }
+
+    running_.store(
+        false,
+        std::memory_order_release
+    );
+
+    return event_loop_ok;
 }

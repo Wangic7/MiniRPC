@@ -20,6 +20,8 @@ public:
 
 bool Submit(std::function<void()> task);
 
+void Stop();
+
 private:
     void WorkerLoop();
 

@@ -32,6 +32,11 @@ ThreadPool::ThreadPool(
 
 ThreadPool::~ThreadPool()
 {
+    Stop();
+}
+
+void ThreadPool::Stop()
+{
     {
         std::lock_guard<std::mutex> lock(mutex_);
 

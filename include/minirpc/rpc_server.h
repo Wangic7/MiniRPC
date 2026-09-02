@@ -1,5 +1,6 @@
 #pragma once
 #include "rpc_header.pb.h"
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <queue>
@@ -39,6 +40,8 @@ public:
     );
 
     bool Start(uint16_t port);
+
+    void Stop();
 
 private:
 
@@ -101,6 +104,9 @@ FrameStatus TryExtractRequestPacket(
 
 private:
     RpcDispatcher dispatcher_;
+
+    std::atomic<bool> running_;
+    std::atomic<bool> started_;
 
     // Worker completion dependencies must outlive thread_pool_.
     std::queue<CompletedResponse> completion_queue_;
